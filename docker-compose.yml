@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  ai-chat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-chat-platform
+    restart: unless-stopped
+    ports:
+      - "3010:3010"
+    environment:
+      - NODE_ENV=production
+      - PORT=3010
+      - DATABASE_PATH=/app/data/chat.db
+      - AUTH_MODE=single-user
+      - AUTH_SECRET=${AUTH_SECRET:-default_secret_please_change}
+      - APP_PASSWORD=${APP_PASSWORD:-}
+      - VPS_AI_BASE_URL=${VPS_AI_BASE_URL:-https://api.xkiro.com/v1}
+      - VPS_AI_API_KEY=${VPS_AI_API_KEY:-sk-xt-ac072784f6eb982b9e11506867d210839388bcbf342a1dce}
+      - DEFAULT_PROVIDER=${DEFAULT_PROVIDER:-xkiro}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-qwen/qwen3.7-plus:free}
+      - MAX_UPLOAD_SIZE=20971520
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
