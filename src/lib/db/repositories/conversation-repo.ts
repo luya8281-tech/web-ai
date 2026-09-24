@@ -17,15 +17,17 @@ export class ConversationRepository {
       FROM conversations c
       WHERE c.user_id = ?
     `;
-    const countQuery = `SELECT COUNT(*) as count FROM conversations c WHERE c.user_id = ?`;
+    let countQuery = `SELECT COUNT(*) as count FROM conversations c WHERE c.user_id = ?`;
     const queryParams: any[] = [params.userId];
     const countParams: any[] = [params.userId];
 
     if (params.projectId !== undefined) {
       if (params.projectId === null) {
         query += ` AND c.project_id IS NULL`;
+        countQuery += ` AND c.project_id IS NULL`;
       } else {
         query += ` AND c.project_id = ?`;
+        countQuery += ` AND c.project_id = ?`;
         queryParams.push(params.projectId);
         countParams.push(params.projectId);
       }
@@ -33,22 +35,26 @@ export class ConversationRepository {
 
     if (params.archived !== undefined) {
       query += ` AND c.archived = ?`;
+      countQuery += ` AND c.archived = ?`;
       queryParams.push(params.archived ? 1 : 0);
       countParams.push(params.archived ? 1 : 0);
     } else {
       query += ` AND c.archived = 0`;
-      countParams.push(0);
+      countQuery += ` AND c.archived = 0`;
     }
 
     if (params.pinned !== undefined) {
       query += ` AND c.pinned = ?`;
+      countQuery += ` AND c.pinned = ?`;
       queryParams.push(params.pinned ? 1 : 0);
       countParams.push(params.pinned ? 1 : 0);
     }
 
     if (params.search && params.search.trim()) {
       const term = `%${params.search.trim()}%`;
-      query += ` AND (c.title LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.content LIKE ?))`;
+      const searchClause = ` AND (c.title LIKE ? OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.content LIKE ?))`;
+      query += searchClause;
+      countQuery += searchClause;
       queryParams.push(term, term);
       countParams.push(term, term);
     }

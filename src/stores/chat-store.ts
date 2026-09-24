@@ -66,8 +66,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   providers: [],
   models: [],
-  activeProviderId: 'xkiro',
-  activeModelId: 'qwen/qwen3.7-plus:free',
+  activeProviderId: 'antigravity',
+  activeModelId: 'gemini-3.8-flash-high',
   projects: [],
   activeProjectId: null,
 

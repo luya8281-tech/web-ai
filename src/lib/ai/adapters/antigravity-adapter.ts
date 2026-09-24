@@ -185,6 +185,7 @@ export class AntigravityAgentAdapter implements AIProvider {
     const queue: ChatStreamChunk[] = [];
     let resolveNext: (() => void) | null = null;
     let isProcessDone = false;
+    let hasYieldedTokens = false;
 
     let buffer = '';
 
@@ -213,15 +214,45 @@ export class AntigravityAgentAdapter implements AIProvider {
           else if (event.event === 'step_update') {
             const step = event.step_update;
             if (step) {
-              // Tool execution tracking
-              if (step.step_type === 'tool_call') {
+              // Tool execution tracking (Web Search, Terminal Command, Skills, etc.)
+              if (step.step_type === 'tool' || step.step_type === 'tool_call') {
+                const toolName = step.tool_name || step.tool_info?.name || 'tool';
+                const params = step.tool_info?.parameters || {};
+
+                if (step.state === 'ACTIVE') {
+                  let toolDesc = `🔧 [Tool: ${toolName}] Menjalankan aksi agent...\n`;
+                  if (toolName === 'search_web' && params.query) {
+                    toolDesc = `🌐 [Web Search Real-Time] Mencari web: "${params.query}"...\n`;
+                  } else if (toolName === 'run_command' && params.CommandLine) {
+                    toolDesc = `⚡ [Server Automation] Eksekusi terminal VPS: \`${params.CommandLine.substring(0, 80)}\`...\n`;
+                  } else if (toolName === 'read_url_content' && params.Url) {
+                    toolDesc = `🔗 [Live Web Browsing] Membaca URL: ${params.Url}...\n`;
+                  } else if (toolName === 'view_file' && params.AbsolutePath) {
+                    toolDesc = `📁 [Workspace VPS] Membaca file: ${params.AbsolutePath}...\n`;
+                  }
+
+                  queue.push({
+                    type: 'reasoning',
+                    reasoning: toolDesc,
+                  });
+                  if (resolveNext) resolveNext();
+                } else if (step.state === 'DONE') {
+                  const duration = step.duration_seconds ? ` (${step.duration_seconds.toFixed(1)}s)` : '';
+                  queue.push({
+                    type: 'reasoning',
+                    reasoning: `✓ [Selesai] ${toolName}${duration}\n\n`,
+                  });
+                  if (resolveNext) resolveNext();
+                }
+              } else if (step.thinking_delta) {
                 queue.push({
                   type: 'reasoning',
-                  reasoning: `🔧 [Tool Call] Executing: ${step.tool_name || 'agentic action'}...\n`,
+                  reasoning: step.thinking_delta,
                 });
                 if (resolveNext) resolveNext();
               } else if (step.text_delta) {
                 // Actual assistant response text
+                hasYieldedTokens = true;
                 queue.push({
                   type: 'token',
                   content: step.text_delta,
@@ -234,6 +265,15 @@ export class AntigravityAgentAdapter implements AIProvider {
           // 3. Final Result event
           else if (event.event === 'result') {
             const result = event.result;
+            if (result?.response && !hasYieldedTokens) {
+              hasYieldedTokens = true;
+              queue.push({
+                type: 'token',
+                content: result.response,
+              });
+              if (resolveNext) resolveNext();
+            }
+
             if (result?.usage) {
               queue.push({
                 type: 'usage',
