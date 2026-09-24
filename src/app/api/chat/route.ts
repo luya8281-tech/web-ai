@@ -58,8 +58,9 @@ export async function POST(req: NextRequest) {
     // Auto-create conversation if new
     if (!conversation) {
       convId = `conv_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      // Generate clean initial title from first 40 chars of message
-      const initialTitle = userContent.trim().split('\n')[0].substring(0, 45) || 'New Chat';
+      // Generate clean initial title from first line of message
+      let initialTitle = userContent.trim().split('\n')[0].replace(/^[\s#>\-*`]+/, '').trim().substring(0, 50);
+      if (!initialTitle) initialTitle = 'New Chat';
       conversation = ConversationRepository.createConversation({
         id: convId,
         userId: user.id,
@@ -72,6 +73,9 @@ export async function POST(req: NextRequest) {
         maxTokens,
         reasoningEffort,
       });
+    } else {
+      // Touch conversation to refresh updated_at so it stays at the top of recent chats
+      ConversationRepository.touchConversation(convId!);
     }
 
     // Determine System Prompt Hierarchy:
@@ -219,6 +223,7 @@ export async function POST(req: NextRequest) {
                   interrupted: req.signal.aborted,
                 },
               });
+              ConversationRepository.touchConversation(convId!);
             } catch (dbErr) {
               console.error('[Failed saving assistant message]', dbErr);
             }

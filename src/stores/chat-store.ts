@@ -93,6 +93,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().loadConversations(),
       get().loadProjects(),
     ]);
+
+    // Restore last active conversation if available, or load most recent
+    if (typeof window !== 'undefined') {
+      const savedId = localStorage.getItem('antigravity_active_conv');
+      const convs = get().conversations;
+      if (savedId && convs.some(c => c.id === savedId)) {
+        await get().selectConversation(savedId);
+      } else if (convs.length > 0) {
+        await get().selectConversation(convs[0].id);
+      }
+    }
   },
 
   loadProviders: async () => {
@@ -169,6 +180,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   selectConversation: async (id) => {
+    if (typeof window !== 'undefined') {
+      if (id) {
+        localStorage.setItem('antigravity_active_conv', id);
+      } else {
+        localStorage.removeItem('antigravity_active_conv');
+      }
+    }
+
     if (!id) {
       set({
         activeConversationId: null,
@@ -206,6 +225,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { abortController } = get();
     if (abortController) {
       abortController.abort();
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('antigravity_active_conv');
     }
     set({
       activeConversationId: null,
@@ -315,8 +337,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (eventType === 'meta') {
               activeConvId = data.conversationId;
               assistantMsgId = data.assistantMessageId;
-              if (data.conversationId && !state.activeConversationId) {
+              if (data.conversationId) {
                 set({ activeConversationId: data.conversationId });
+                if (typeof window !== 'undefined' && !state.temporaryChat) {
+                  localStorage.setItem('antigravity_active_conv', data.conversationId);
+                }
                 get().loadConversations();
               }
             } else if (eventType === 'reasoning') {
@@ -529,6 +554,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        if (typeof window !== 'undefined' && localStorage.getItem('antigravity_active_conv') === id) {
+          localStorage.removeItem('antigravity_active_conv');
+        }
         if (get().activeConversationId === id) {
           get().newChat();
         }

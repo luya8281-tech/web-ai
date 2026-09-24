@@ -162,7 +162,7 @@ export const Composer: React.FC = () => {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`relative w-full max-w-3xl mx-auto px-3 sm:px-4 pb-3 sm:pb-5 transition-all ${
+      className={`relative w-full max-w-3xl mx-auto px-3 sm:px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-5 transition-all ${
         isDragging ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''
       }`}
     >
@@ -177,7 +177,7 @@ export const Composer: React.FC = () => {
 
       {/* Parameter drawer modal */}
       {paramsOpen && (
-        <div className="mb-2 p-3 sm:p-4 rounded-xl border border-border bg-card shadow-lg text-xs space-y-3 animate-slide-in-up">
+        <div className="mb-2 p-3 sm:p-4 rounded-xl border border-border bg-card shadow-lg text-xs space-y-3 animate-slide-in-up max-h-[60vh] overflow-y-auto">
           <div className="flex items-center justify-between font-semibold text-foreground border-b border-border/50 pb-2">
             <span>Model Parameters & System Prompt</span>
             <button
@@ -292,7 +292,7 @@ export const Composer: React.FC = () => {
           onPaste={handlePaste}
           placeholder="Message AI assistant... (Shift+Enter for new line)"
           rows={1}
-          className="w-full px-4 pt-3.5 pb-2 rounded-t-2xl bg-transparent text-foreground placeholder:text-muted-foreground/60 text-[15px] resize-none focus:outline-none leading-relaxed"
+          className="w-full px-4 pt-3.5 pb-2 rounded-t-2xl bg-transparent text-foreground placeholder:text-muted-foreground/60 text-base sm:text-[15px] resize-none focus:outline-none leading-relaxed"
         />
 
         {/* Composer Toolbar */}
@@ -302,7 +302,7 @@ export const Composer: React.FC = () => {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
-              className="p-2 rounded-lg hover:text-foreground hover:bg-muted transition-colors text-xs font-medium"
+              className="p-2 min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg hover:text-foreground hover:bg-muted transition-colors text-xs font-medium touch-manipulation"
               title="Attach File or Image"
               aria-label="Attach File"
             >
@@ -311,7 +311,7 @@ export const Composer: React.FC = () => {
 
             <button
               onClick={() => setParamsOpen(!paramsOpen)}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-2 min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg transition-colors touch-manipulation ${
                 paramsOpen ? 'text-primary bg-primary/10' : 'hover:text-foreground hover:bg-muted'
               }`}
               title="Parameters & System Prompt"
@@ -337,7 +337,7 @@ export const Composer: React.FC = () => {
             {isGenerating ? (
               <button
                 onClick={stopGeneration}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-medium text-xs transition-all shadow-xs active:scale-95"
+                className="flex items-center gap-1.5 min-h-[38px] px-3.5 py-1.5 rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-medium text-xs transition-all shadow-xs active:scale-95 touch-manipulation"
                 title="Hentikan pembuatan respon (Esc)"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
@@ -347,7 +347,7 @@ export const Composer: React.FC = () => {
               <button
                 onClick={handleSend}
                 disabled={!input.trim() && attachments.length === 0}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-30 disabled:pointer-events-none font-semibold text-xs transition-all shadow-xs active:scale-95"
+                className="flex items-center gap-1.5 min-h-[38px] px-4 py-1.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-30 disabled:pointer-events-none font-semibold text-xs transition-all shadow-xs active:scale-95 touch-manipulation"
                 title="Kirim pesan (Enter)"
                 aria-label="Kirim pesan"
               >

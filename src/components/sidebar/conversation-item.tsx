@@ -91,7 +91,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
 
   return (
     <div
-      className={`group relative flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-medium transition-colors cursor-pointer ${
+      className={`group relative flex items-center justify-between rounded-xl px-3 py-2.5 sm:py-2 text-xs font-medium transition-colors cursor-pointer min-h-[40px] ${
         isActive
           ? 'bg-muted text-foreground'
           : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -117,18 +117,18 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
               value={titleInput}
               onChange={(e) => setTitleInput(e.target.value)}
               autoFocus
-              className="w-full bg-background border border-primary px-1.5 py-0.5 rounded text-xs text-foreground focus:outline-none"
+              className="w-full bg-background border border-primary px-2 py-1 rounded text-xs text-foreground focus:outline-none"
             />
             <button
               type="submit"
-              className="p-0.5 text-emerald-500 hover:text-emerald-400"
+              className="p-1 text-emerald-500 hover:text-emerald-400 touch-manipulation"
             >
               <Check className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={() => setIsRenaming(false)}
-              className="p-0.5 text-muted-foreground hover:text-foreground"
+              className="p-1 text-muted-foreground hover:text-foreground touch-manipulation"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -143,10 +143,11 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
         <div className="relative shrink-0" ref={menuRef} onClick={(e) => e.stopPropagation()}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className={`p-1 rounded-md hover:bg-muted-foreground/10 text-muted-foreground hover:text-foreground transition-opacity ${
-              isActive || menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            className={`p-1.5 sm:p-1 rounded-md hover:bg-muted-foreground/10 text-muted-foreground hover:text-foreground transition-opacity touch-manipulation ${
+              isActive || menuOpen ? 'opacity-100' : 'opacity-70 sm:opacity-0 sm:group-hover:opacity-100'
             }`}
             title="Options"
+            aria-label="Conversation options"
           >
             <MoreHorizontal className="w-3.5 h-3.5" />
           </button>

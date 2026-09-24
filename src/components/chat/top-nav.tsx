@@ -80,16 +80,17 @@ export const TopNav: React.FC = () => {
 
         <button
           onClick={() => newChat()}
-          className="hidden sm:flex items-center gap-1.5 p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs font-medium"
+          className="flex items-center justify-center p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs font-medium"
           title="New Chat (Ctrl+Shift+O)"
+          aria-label="New Chat"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-4 h-4 stroke-[2.2]" />
         </button>
 
         {/* Model Selector Pill */}
         <button
           onClick={() => setModelSelectorOpen(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border/70 bg-card hover:bg-muted/80 text-foreground transition-all shadow-sm max-w-[280px] sm:max-w-xs"
+          className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full border border-border/70 bg-card hover:bg-muted/80 text-foreground transition-all shadow-sm max-w-[130px] min-[380px]:max-w-[180px] sm:max-w-xs"
         >
           <div className="flex items-center gap-1.5 truncate">
             <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
@@ -127,11 +128,11 @@ export const TopNav: React.FC = () => {
       </div>
 
       {/* Right section: Temporary chat, Export, Settings */}
-      <div className="flex items-center gap-1 sm:gap-2">
+      <div className="flex items-center gap-0.5 sm:gap-2">
         {/* Temporary / Private Chat Indicator */}
         <button
           onClick={() => setTemporaryChat(!temporaryChat)}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+          className={`flex items-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition-colors ${
             temporaryChat
               ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
               : 'text-muted-foreground hover:text-foreground hover:bg-muted'

@@ -125,7 +125,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 w-64 sm:w-72 flex flex-col bg-sidebar border-r border-sidebar-border transition-transform duration-200 ease-in-out ${
+        className={`fixed md:static inset-y-0 left-0 z-40 w-[82vw] max-w-xs sm:w-72 h-[100dvh] flex flex-col bg-sidebar border-r border-sidebar-border transition-transform duration-200 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:-translate-x-full md:hidden'
         }`}
       >

@@ -203,8 +203,14 @@ export class ConversationRepository {
     return this.getConversation(id);
   }
 
+  static touchConversation(id: string): void {
+    const now = new Date().toISOString();
+    db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, id);
+  }
+
   static deleteConversation(id: string): boolean {
     const res = db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
     return res.changes > 0;
   }
 }
+

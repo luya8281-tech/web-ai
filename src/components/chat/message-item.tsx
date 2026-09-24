@@ -175,11 +175,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isLastAssista
 
           {/* Action Toolbar */}
           {!isEditing && (
-            <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground text-xs">
+            <div className="flex items-center gap-1.5 sm:gap-2 mt-2 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-muted-foreground text-xs flex-wrap">
               <button
                 onClick={handleCopy}
-                className="p-1 rounded hover:text-foreground hover:bg-muted transition-colors"
+                className="p-1.5 sm:p-1 rounded-md hover:text-foreground hover:bg-muted transition-colors touch-manipulation min-h-[30px] min-w-[30px] flex items-center justify-center"
                 title="Copy message"
+                aria-label="Copy message"
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
@@ -188,15 +189,17 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isLastAssista
                 <>
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="p-1 rounded hover:text-foreground hover:bg-muted transition-colors"
+                    className="p-1.5 sm:p-1 rounded-md hover:text-foreground hover:bg-muted transition-colors touch-manipulation min-h-[30px] min-w-[30px] flex items-center justify-center"
                     title="Edit message"
+                    aria-label="Edit message"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => deleteMessage(message.id)}
-                    className="p-1 rounded hover:text-destructive hover:bg-muted transition-colors"
+                    className="p-1.5 sm:p-1 rounded-md hover:text-destructive hover:bg-muted transition-colors touch-manipulation min-h-[30px] min-w-[30px] flex items-center justify-center"
                     title="Delete message"
+                    aria-label="Delete message"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -206,15 +209,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isLastAssista
                   <button
                     onClick={() => regenerateMessage(message.id)}
                     disabled={isGenerating}
-                    className="p-1 rounded hover:text-foreground hover:bg-muted disabled:opacity-40 transition-colors"
+                    className="p-1.5 sm:p-1 rounded-md hover:text-foreground hover:bg-muted disabled:opacity-40 transition-colors touch-manipulation min-h-[30px] min-w-[30px] flex items-center justify-center"
                     title="Regenerate response"
+                    aria-label="Regenerate response"
                   >
                     <RotateCw className="w-3.5 h-3.5" />
                   </button>
 
                   {/* Token stats badge */}
                   {message.metadata?.tokenInput !== undefined && (
-                    <span className="text-[10px] text-muted-foreground/70 ml-2">
+                    <span className="text-[10px] text-muted-foreground/70 ml-1.5">
                       {message.metadata.tokenInput} in / {message.metadata.tokenOutput} out
                       {message.metadata.latencyMs ? ` · ${(message.metadata.latencyMs / 1000).toFixed(1)}s` : ''}
                     </span>

@@ -19,6 +19,9 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  interactiveWidget: 'resizes-content',
 };
 
 export default function RootLayout({
@@ -28,7 +31,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="antialiased h-screen overflow-hidden bg-background text-foreground flex">
+      <body className="antialiased h-[100dvh] min-h-[100dvh] overflow-hidden bg-background text-foreground flex">
         {children}
         <ModelSelectorDialog />
         <SettingsDialog />

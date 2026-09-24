@@ -58,7 +58,7 @@ export const ChatContainer: React.FC = () => {
   const hasMessages = messages.length > 0 || isGenerating;
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-background">
+    <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden bg-background">
       {/* Top Header */}
       <TopNav />
 
