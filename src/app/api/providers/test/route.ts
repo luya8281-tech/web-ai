@@ -4,6 +4,7 @@ import { AIRouter } from '@/lib/ai/router';
 import { OpenAICompatibleAdapter } from '@/lib/ai/adapters/openai-adapter';
 import { AnthropicAdapter } from '@/lib/ai/adapters/anthropic-adapter';
 import { MockDevAdapter } from '@/lib/ai/adapters/mock-adapter';
+import { AntigravityAgentAdapter } from '@/lib/ai/adapters/antigravity-adapter';
 import { ProviderRepository } from '@/lib/db/repositories/provider-repo';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ const TestSchema = z.object({
   providerId: z.string().optional(),
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
-  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock']).optional(),
+  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock', 'antigravity-agent']).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -31,7 +32,9 @@ export async function POST(req: NextRequest) {
     if (baseUrl) {
       // Test dynamic ad-hoc configuration
       const effectiveProtocol = protocol || 'openai-compatible';
-      if (effectiveProtocol === 'anthropic-compatible') {
+      if (effectiveProtocol === 'antigravity-agent') {
+        adapter = new AntigravityAgentAdapter();
+      } else if (effectiveProtocol === 'anthropic-compatible') {
         adapter = new AnthropicAdapter({ id: 'test', name: 'Test', baseUrl, apiKey });
       } else if (effectiveProtocol === 'mock') {
         adapter = new MockDevAdapter();

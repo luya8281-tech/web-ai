@@ -3,10 +3,16 @@ import { AIProvider, ChatRequest, ChatResponse } from './provider-interface';
 import { OpenAICompatibleAdapter } from './adapters/openai-adapter';
 import { AnthropicAdapter } from './adapters/anthropic-adapter';
 import { MockDevAdapter } from './adapters/mock-adapter';
+import { AntigravityAgentAdapter } from './adapters/antigravity-adapter';
 import { ChatStreamChunk } from '@/types/chat';
 
 export class AIRouter {
   static getProviderInstance(providerId: string): AIProvider {
+    // Check if Antigravity native agent
+    if (providerId === 'antigravity') {
+      return new AntigravityAgentAdapter();
+    }
+
     // Check if mock
     if (providerId === 'mock-dev') {
       return new MockDevAdapter();
@@ -30,6 +36,9 @@ export class AIRouter {
     const apiKey = ProviderRepository.getProviderApiKey(providerId) || undefined;
 
     switch (providerRecord.protocol) {
+      case 'antigravity-agent':
+        return new AntigravityAgentAdapter();
+
       case 'anthropic-compatible':
         return new AnthropicAdapter({
           id: providerRecord.id,

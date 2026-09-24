@@ -37,7 +37,7 @@ export const SettingsDialog: React.FC = () => {
     name: '',
     baseUrl: '',
     apiKey: '',
-    protocol: 'openai-compatible' as 'openai-compatible' | 'anthropic-compatible' | 'mock',
+    protocol: 'openai-compatible' as 'openai-compatible' | 'anthropic-compatible' | 'mock' | 'antigravity-agent',
   });
   const [testStatus, setTestStatus] = useState<{ loading: boolean; ok?: boolean; message?: string } | null>(null);
 
@@ -382,7 +382,8 @@ export const SettingsDialog: React.FC = () => {
                           onChange={(e) => setProviderForm({ ...providerForm, protocol: e.target.value as any })}
                           className="w-full p-2 rounded-lg border border-border bg-background text-foreground text-xs"
                         >
-                          <option value="openai-compatible">OpenAI Compatible (vLLM, Ollama, xKiro)</option>
+                          <option value="openai-compatible">OpenAI Compatible (vLLM, Ollama, xKiro, Vyce)</option>
+                          <option value="antigravity-agent">Antigravity Native Agent (Tools, Bash, Skills)</option>
                           <option value="anthropic-compatible">Anthropic Compatible</option>
                           <option value="mock">Development Mock</option>
                         </select>

@@ -156,6 +156,35 @@ async function runTests() {
     assert.ok(json.choices[0].message.content.length > 0, 'Should return text response');
   });
 
+  // 7. Real Vyce AI Provider Completion Test
+  await test('Real Vyce AI provider completion (claude-sonnet-4-6)', async () => {
+    const res = await fetch('https://vyceai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer sk-28c9eb50e9848570646253026262262556ead5c9b6b4e888',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        messages: [{ role: 'user', content: 'Ping' }],
+        max_tokens: 5,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    assert.strictEqual(res.status, 200, 'Vyce completion should succeed with status 200');
+    const json = await res.json();
+    assert.ok(json.choices && json.choices.length > 0, 'Vyce should return choices');
+    assert.ok(json.choices[0].message.content.length > 0, 'Vyce should return text');
+  });
+
+  // 8. Antigravity CLI Agent Ecosystem Test
+  await test('Antigravity CLI Agent binary and models check', async () => {
+    const { execSync } = require('child_process');
+    const output = execSync('/root/.local/bin/agy models', { encoding: 'utf-8', timeout: 15000 });
+    assert.ok(output.includes('gemini-'), 'Antigravity CLI should list available gemini models');
+  });
+
   console.log(`\n==================================================`);
   console.log(`TEST SUMMARY: ${passed} PASSED, ${failed} FAILED`);
   console.log('==================================================');

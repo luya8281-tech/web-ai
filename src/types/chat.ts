@@ -87,7 +87,7 @@ export interface Model {
   isEnabled?: boolean;
 }
 
-export type ProviderProtocol = 'openai-compatible' | 'anthropic-compatible' | 'mock';
+export type ProviderProtocol = 'openai-compatible' | 'anthropic-compatible' | 'mock' | 'antigravity-agent';
 
 export interface Provider {
   id: string;

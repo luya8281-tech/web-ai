@@ -337,21 +337,22 @@ export const Composer: React.FC = () => {
             {isGenerating ? (
               <button
                 onClick={stopGeneration}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors text-xs font-medium shadow-xs"
-                title="Stop generating (Esc)"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-medium text-xs transition-all shadow-xs active:scale-95"
+                title="Hentikan pembuatan respon (Esc)"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Stop</span>
+                <span>Hentikan</span>
               </button>
             ) : (
               <button
                 onClick={handleSend}
                 disabled={!input.trim() && attachments.length === 0}
-                className="p-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-30 disabled:pointer-events-none transition-all shadow-xs"
-                title="Send message"
-                aria-label="Send message"
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-30 disabled:pointer-events-none font-semibold text-xs transition-all shadow-xs active:scale-95"
+                title="Kirim pesan (Enter)"
+                aria-label="Kirim pesan"
               >
-                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                <span>Kirim</span>
+                <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
               </button>
             )}
           </div>

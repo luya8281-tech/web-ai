@@ -123,7 +123,34 @@ provStmt.run(
 );
 credStmt.run('apmix', 'apmix', 'apx_live_OOjl33BJxzIQk56L9xkbu4809egts4wFC9r4d8cD', now, now);
 
-// Provider 3: Development Provider (Mock)
+// Provider 3: Vyce AI (Active VPS Endpoint)
+provStmt.run(
+  'vyce',
+  'Vyce AI',
+  'https://vyceai.com/v1',
+  'openai-compatible',
+  0,
+  1,
+  1,
+  now,
+  now
+);
+credStmt.run('vyce', 'vyce', 'sk-28c9eb50e9848570646253026262262556ead5c9b6b4e888', now, now);
+
+// Provider 4: Antigravity AI (Native VPS Agent & Ecosystem)
+provStmt.run(
+  'antigravity',
+  'Antigravity AI (Agent & Tools)',
+  'local://antigravity-cli',
+  'antigravity-agent',
+  0,
+  1,
+  1,
+  now,
+  now
+);
+
+// Provider 5: Development Provider (Mock)
 provStmt.run(
   'mock-dev',
   'Development Provider',
@@ -213,6 +240,58 @@ for (const m of apmixModels) {
     'Fast multi-model provider hosted on Apmix gateway.',
     m.context_length,
     4096,
+    JSON.stringify(m.capabilities),
+    null,
+    0,
+    now,
+    now
+  );
+}
+
+// Seed Vyce models
+const vyceModels = [
+  { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6 (Vyce)', context_length: 270000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'qwen3.8-flash', display_name: 'Qwen 3.8 Flash (Vyce)', context_length: 1000000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'deepseek-v4-flash', display_name: 'DeepSeek V4 Flash (Vyce)', context_length: 270000, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'deepseek-v4.1', display_name: 'DeepSeek V4.1 (Vyce)', context_length: 270000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'agnes-3.0-flash', display_name: 'Agnes 3.0 Flash (Vyce)', context_length: 512000, capabilities: { text: true, vision: true, tools: true, reasoning: false } },
+];
+for (const m of vyceModels) {
+  modelStmt.run(
+    `vyce:${m.id}`,
+    'vyce',
+    m.id,
+    m.id,
+    m.display_name,
+    'High-speed inference hosted on Vyce AI gateway.',
+    m.context_length,
+    4096,
+    JSON.stringify(m.capabilities),
+    null,
+    0,
+    now,
+    now
+  );
+}
+
+// Seed Antigravity Agent models
+const antigravityModels = [
+  { id: 'gemini-3.8-flash-high', display_name: 'Gemini 3.8 Flash (High Effort Agent)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6 (Agent Thinking)', context_length: 200000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'gemini-3.1-pro-high', display_name: 'Gemini 3.1 Pro (High Reasoning)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'claude-opus-4-6-thinking', display_name: 'Claude Opus 4.6 (Max Reasoning)', context_length: 200000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'gpt-oss-120b-medium', display_name: 'GPT-OSS 120B (Medium Effort)', context_length: 128000, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+];
+for (const m of antigravityModels) {
+  modelStmt.run(
+    `antigravity:${m.id}`,
+    'antigravity',
+    m.id,
+    m.id,
+    m.display_name,
+    'Native Antigravity agent with bash, tools, web search, and skills.',
+    m.context_length,
+    65536,
     JSON.stringify(m.capabilities),
     null,
     0,

@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic';
 
 const UpdateProviderSchema = z.object({
   name: z.string().optional(),
-  baseUrl: z.string().url().optional(),
-  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock']).optional(),
+  baseUrl: z.string().min(1).optional(),
+  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock', 'antigravity-agent']).optional(),
   apiKey: z.string().optional(),
   isDefault: z.boolean().optional(),
   isEnabled: z.boolean().optional(),
