@@ -1,21 +1,53 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './code-block';
+import { ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react';
+
+const ToolDropdown = ({ toolName, toolArg }: { toolName: string, toolArg: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  // Only display web search line like Claude, hide all other backend tools completely
+  if (toolName !== 'CARI_WEB' && toolName !== 'BUKA_WEB') {
+    return null;
+  }
+
+  const cleanArg = toolArg.trim().replace(/^["']|["']$/g, '');
+  const displayText = cleanArg.length > 34 ? cleanArg.slice(0, 34) + '...' : cleanArg;
+  const label = toolName === 'CARI_WEB' ? `Mencari "${displayText}"` : `Membuka "${displayText}"`;
+
+  return (
+    <div className="my-2">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground/80 hover:text-foreground transition-colors group cursor-pointer"
+      >
+        <span className="text-xs opacity-75">🌐</span>
+        <span className="font-normal">{label}</span>
+        <ChevronRight className={`w-3 h-3 opacity-40 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+      </button>
+      {isOpen && (
+        <div className="mt-1 p-2 rounded-lg border border-border/40 bg-card/60 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap break-all max-w-lg">
+          {toolArg}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface MarkdownRendererProps {
   content: string;
   showLineNumbers?: boolean;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
   content,
   showLineNumbers = true,
 }) => {
   return (
-    <div className="prose prose-zinc dark:prose-invert max-w-none break-words text-[15px] leading-7">
+    <div className="prose prose-neutral dark:prose-invert max-w-none break-words text-[15.5px] leading-[1.65] text-foreground font-sans">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -34,10 +66,21 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               );
             }
 
+            const language = match ? match[1] : 'text';
+            const value = String(children).replace(/\n$/, '');
+
+            if (language === 'tool') {
+              const lines = value.split('\n');
+              const toolName = lines[0] || 'UNKNOWN_TOOL';
+              const toolArg = lines.slice(1).join('\n') || '...';
+              
+              return <ToolDropdown toolName={toolName} toolArg={toolArg} />;
+            }
+
             return (
               <CodeBlock
-                language={match ? match[1] : 'text'}
-                value={String(children).replace(/\n$/, '')}
+                language={language}
+                value={value}
                 showLineNumbers={showLineNumbers}
               />
             );
@@ -83,22 +126,25 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             );
           },
           ul({ children }) {
-            return <ul className="my-2 ml-5 list-disc space-y-1">{children}</ul>;
+            return <ul className="list-disc pl-5 my-1 space-y-0.5">{children}</ul>;
           },
           ol({ children }) {
-            return <ol className="my-2 ml-5 list-decimal space-y-1">{children}</ol>;
+            return <ol className="list-decimal pl-5 my-1 space-y-0.5">{children}</ol>;
+          },
+          li({ children }) {
+            return <li className="pl-0.5 my-1 leading-[1.65] text-foreground">{children}</li>;
           },
           h1({ children }) {
-            return <h1 className="text-2xl font-bold tracking-tight mt-6 mb-3 text-foreground">{children}</h1>;
+            return <h1 className="text-xl font-semibold tracking-tight !mt-4 !mb-2 text-foreground">{children}</h1>;
           },
           h2({ children }) {
-            return <h2 className="text-xl font-bold tracking-tight mt-5 mb-2.5 text-foreground">{children}</h2>;
+            return <h2 className="text-lg font-semibold tracking-tight !mt-3.5 !mb-1.5 text-foreground">{children}</h2>;
           },
           h3({ children }) {
-            return <h3 className="text-lg font-semibold mt-4 mb-2 text-foreground">{children}</h3>;
+            return <h3 className="text-base font-semibold tracking-tight !mt-3 !mb-1 text-foreground">{children}</h3>;
           },
           p({ children }) {
-            return <p className="my-2.5 leading-relaxed">{children}</p>;
+            return <p className="!mt-0 !mb-3 last:!mb-0 leading-[1.65] text-foreground">{children}</p>;
           },
         }}
       >
@@ -106,4 +152,6 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       </ReactMarkdown>
     </div>
   );
-};
+});
+
+MarkdownRenderer.displayName = 'MarkdownRenderer';

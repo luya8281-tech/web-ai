@@ -4,26 +4,32 @@ export interface AuthUser {
   id: string;
   name: string;
   email: string;
-  role: string;
+  role: 'admin' | 'user';
+  avatar?: string | null;
 }
 
 export function getCurrentUser(request?: Request): AuthUser {
-  const authMode = process.env.AUTH_MODE || 'single-user';
   const defaultUserId = 'user_vee';
 
-  // Ensure default user exists in SQLite
-  const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(defaultUserId) as any;
-  if (!existing) {
+  try {
+    const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(defaultUserId) as any;
+    if (existing) {
+      return {
+        id: existing.id,
+        name: existing.name || 'Vee',
+        email: existing.email || 'vee@vps.local',
+        role: (existing.role as 'admin' | 'user') || 'admin',
+        avatar: existing.avatar || null,
+      };
+    }
+
     const now = new Date().toISOString();
     db.prepare(`
       INSERT INTO users (id, email, name, role, created_at, updated_at)
       VALUES (?, ?, ?, 'admin', ?, ?)
     `).run(defaultUserId, 'vee@vps.local', 'Vee', now, now);
-  }
-
-  // If password protection is enabled in single-user mode
-  if (authMode === 'single-user' && process.env.APP_PASSWORD) {
-    // Check cookie or header if required
+  } catch (err: any) {
+    console.error('[Auth] Error getting default user:', err.message);
   }
 
   return {
@@ -31,5 +37,6 @@ export function getCurrentUser(request?: Request): AuthUser {
     name: 'Vee',
     email: 'vee@vps.local',
     role: 'admin',
+    avatar: null,
   };
 }

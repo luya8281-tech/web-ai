@@ -1,4 +1,4 @@
-import { AIProvider, ChatRequest, ChatResponse } from '../provider-interface';
+import { AIProvider, ChatMessage, ChatRequest, ChatResponse } from '../provider-interface';
 import { Model, ChatStreamChunk } from '@/types/chat';
 
 export class AnthropicAdapter implements AIProvider {
@@ -93,10 +93,40 @@ export class AnthropicAdapter implements AIProvider {
     ];
   }
 
-  async chat(request: ChatRequest): Promise<ChatResponse> {
-    const messages = request.messages
+  private formatMessages(requestMessages: ChatMessage[]) {
+    return requestMessages
       .filter(m => m.role !== 'system')
-      .map(m => ({ role: m.role, content: m.content }));
+      .map(m => {
+        if (m.images && m.images.length > 0) {
+          const contentParts: any[] = [];
+          for (const img of m.images) {
+            const match = img.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              let mediaType = match[1];
+              if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mediaType)) {
+                mediaType = 'image/jpeg';
+              }
+              contentParts.push({
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: match[2],
+                },
+              });
+            }
+          }
+          if (m.content) {
+            contentParts.push({ type: 'text', text: m.content });
+          }
+          return { role: m.role, content: contentParts.length > 0 ? contentParts : m.content };
+        }
+        return { role: m.role, content: m.content };
+      });
+  }
+
+  async chat(request: ChatRequest): Promise<ChatResponse> {
+    const messages = this.formatMessages(request.messages);
 
     const res = await fetch(`${this.baseUrl}/messages`, {
       method: 'POST',
@@ -134,9 +164,7 @@ export class AnthropicAdapter implements AIProvider {
   }
 
   async *streamChat(request: ChatRequest): AsyncIterable<ChatStreamChunk> {
-    const messages = request.messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({ role: m.role, content: m.content }));
+    const messages = this.formatMessages(request.messages);
 
     let res: Response;
     try {

@@ -5,7 +5,6 @@ import { Sidebar } from '@/components/sidebar/sidebar';
 import { ChatContainer } from '@/components/chat/chat-container';
 import { useChatStore } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
-
 import { useUIStore } from '@/stores/ui-store';
 
 export default function ChatPage() {

@@ -282,7 +282,7 @@ export class OpenAICompatibleAdapter implements AIProvider {
         yield { type: 'done' };
         return;
       }
-      yield { type: 'error', error: `Network connection failed: ${err.message}` };
+      yield { type: 'error', error: `Koneksi ke provider ${this.name} terputus: ${err.message}. Silakan coba pilih model lain.` };
       return;
     }
 

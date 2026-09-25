@@ -9,6 +9,15 @@ export interface Attachment {
   dataUrl?: string; // base64 for vision/inline if needed
 }
 
+export interface ActionInfo {
+  id?: string;
+  type: string;
+  label: string;
+  status: 'running' | 'done';
+  details?: string;
+  timestamp?: number;
+}
+
 export interface MessageMetadata {
   provider?: string;
   model?: string;
@@ -17,6 +26,7 @@ export interface MessageMetadata {
   totalTokens?: number;
   latencyMs?: number;
   finishReason?: string;
+  actions?: ActionInfo[];
   [key: string]: unknown;
 }
 

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Check, Copy, Download } from 'lucide-react';
+import { copyToClipboard } from '@/lib/utils/clipboard';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-javascript';
 import 'prismjs/components/prism-typescript';
@@ -31,9 +32,11 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      const ok = await copyToClipboard(value);
+      if (ok) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
     } catch (e) {
       console.error('Failed to copy', e);
     }

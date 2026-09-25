@@ -41,6 +41,15 @@ export const SettingsDialog: React.FC = () => {
   });
   const [testStatus, setTestStatus] = useState<{ loading: boolean; ok?: boolean; message?: string } | null>(null);
 
+  // Edit Provider State
+  const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
+  const [editProviderForm, setEditProviderForm] = useState({
+    name: '',
+    baseUrl: '',
+    apiKey: '',
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
   if (!settingsOpen) return null;
 
   const handleTestConnection = async () => {
@@ -113,6 +122,39 @@ export const SettingsDialog: React.FC = () => {
       }
     } catch (e: any) {
       addToast(e.message, 'error');
+    }
+  };
+
+  const startEditProvider = (p: Provider) => {
+    setEditingProviderId(p.id);
+    setEditProviderForm({ name: p.name, baseUrl: p.baseUrl || '', apiKey: '' });
+  };
+
+  const handleSaveEditProvider = async () => {
+    if (!editingProviderId) return;
+    setEditSaving(true);
+    try {
+      const body: Record<string, any> = {};
+      if (editProviderForm.name) body.name = editProviderForm.name;
+      if (editProviderForm.baseUrl) body.baseUrl = editProviderForm.baseUrl;
+      if (editProviderForm.apiKey) body.apiKey = editProviderForm.apiKey;
+
+      const res = await fetch(`/api/providers/${editingProviderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to update provider');
+      }
+      await loadProviders();
+      addToast('Provider updated', 'success');
+      setEditingProviderId(null);
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -468,28 +510,37 @@ export const SettingsDialog: React.FC = () => {
                 {/* Providers List */}
                 <div className="space-y-3">
                   {providers.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between p-4 rounded-xl border border-border bg-card shadow-xs"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground">{p.name}</span>
-                          {p.isDefault && (
-                            <span className="px-2 py-0.5 rounded-md bg-primary/20 text-primary text-[10px] font-bold uppercase">
-                              Default
-                            </span>
-                          )}
-                          <span className="w-2 h-2 rounded-full bg-emerald-500" title="Connected" />
+                    <div key={p.id} className="rounded-xl border border-border bg-card shadow-xs overflow-hidden">
+                      <div className="flex items-center justify-between p-4">
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-foreground">{p.name}</span>
+                            {p.isDefault && (
+                              <span className="px-2 py-0.5 rounded-md bg-primary/20 text-primary text-[10px] font-bold uppercase">
+                                Default
+                              </span>
+                            )}
+                            {p.isSystem && (
+                              <span className="px-2 py-0.5 rounded-md bg-muted text-muted-foreground text-[10px] font-medium uppercase">
+                                System
+                              </span>
+                            )}
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" title="Connected" />
+                          </div>
+                          <div className="text-xs text-muted-foreground font-mono truncate">{p.baseUrl}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {p.modelsCount || 0} models · {p.protocol}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground font-mono">{p.baseUrl}</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {p.modelsCount || 0} models registered · Protocol: {p.protocol}
-                        </div>
-                      </div>
 
-                      <div className="flex items-center gap-2">
-                        {!p.isSystem && (
+                        <div className="flex items-center gap-1.5 ml-3 shrink-0">
+                          <button
+                            onClick={() => editingProviderId === p.id ? setEditingProviderId(null) : startEditProvider(p)}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title="Edit provider"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => handleDeleteProvider(p.id, p.name)}
                             className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
@@ -497,8 +548,65 @@ export const SettingsDialog: React.FC = () => {
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
-                        )}
+                        </div>
                       </div>
+
+                      {/* Inline Edit Form */}
+                      {editingProviderId === p.id && (
+                        <div className="border-t border-border p-4 bg-muted/20 space-y-3">
+                          <div className="text-xs font-semibold text-foreground uppercase tracking-wide">Edit Provider</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-muted-foreground mb-1">Display Name</label>
+                              <input
+                                type="text"
+                                value={editProviderForm.name}
+                                onChange={(e) => setEditProviderForm({ ...editProviderForm, name: e.target.value })}
+                                className="w-full p-2 rounded-lg border border-border bg-background text-foreground text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-muted-foreground mb-1">Base URL</label>
+                              <input
+                                type="url"
+                                value={editProviderForm.baseUrl}
+                                onChange={(e) => setEditProviderForm({ ...editProviderForm, baseUrl: e.target.value })}
+                                className="w-full p-2 rounded-lg border border-border bg-background text-foreground text-xs"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1">
+                              New API Key <span className="text-muted-foreground/60 font-normal">(leave blank to keep current)</span>
+                            </label>
+                            <input
+                              type="password"
+                              placeholder="sk-... (leave blank to keep existing)"
+                              value={editProviderForm.apiKey}
+                              onChange={(e) => setEditProviderForm({ ...editProviderForm, apiKey: e.target.value })}
+                              className="w-full p-2 rounded-lg border border-border bg-background text-foreground text-xs font-mono"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setEditingProviderId(null)}
+                              className="px-3 py-1.5 text-xs rounded-lg hover:bg-muted text-muted-foreground"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveEditProvider}
+                              disabled={editSaving}
+                              className="px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary-hover disabled:opacity-60 flex items-center gap-1.5"
+                            >
+                              {editSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                              Save Changes
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

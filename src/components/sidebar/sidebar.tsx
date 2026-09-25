@@ -331,27 +331,27 @@ export const Sidebar: React.FC = () => {
 
           {/* User Profile Bar */}
           <div className="flex items-center justify-between pt-1">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">
+            <div className="flex items-center gap-2 min-w-0 pr-1">
+              <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
                 V
               </div>
-              <div className="flex flex-col text-left">
-                <span className="text-xs font-semibold text-sidebar-foreground">Vee</span>
-                <span className="text-[10px] text-sidebar-foreground/50">Single-User · Admin</span>
+              <div className="flex flex-col text-left truncate">
+                <span className="text-xs font-semibold text-sidebar-foreground truncate">
+                  Vee
+                </span>
+                <span className="text-[10px] text-sidebar-foreground/50">
+                  Single-User · Admin
+                </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={toggleTheme}
                 className="p-1.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
                 title={`Toggle theme (current: ${settings.theme})`}
               >
-                {settings.theme === 'dark' ? (
-                  <Sun className="w-4 h-4" />
-                ) : (
-                  <Moon className="w-4 h-4" />
-                )}
+                {settings.theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
 
               <button

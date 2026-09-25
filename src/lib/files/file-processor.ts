@@ -22,7 +22,7 @@ export class FileProcessor {
   static readonly MAX_SIZE_BYTES = parseInt(process.env.MAX_UPLOAD_SIZE || '20971520', 10); // 20 MB
 
   static isImageMime(mime: string): boolean {
-    return /^image\/(jpeg|png|webp|gif|svg\+xml)/.test(mime);
+    return mime.startsWith('image/') || /^image\/(jpeg|png|webp|gif|svg\+xml|heic|heif)/.test(mime);
   }
 
   static isTextMime(mime: string, ext: string): boolean {

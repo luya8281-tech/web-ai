@@ -9,11 +9,15 @@ import {
   X,
   FileText,
   Image as ImageIcon,
+  Camera,
   AlertTriangle,
   Brain,
   Sparkles,
   Globe,
   Wrench,
+  Plus,
+  Mic,
+  AudioWaveform,
 } from 'lucide-react';
 import { useChatStore } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -35,6 +39,7 @@ export const Composer: React.FC = () => {
     topP,
     maxTokens,
     reasoningEffort,
+    messages,
     systemPrompt,
     setParameters,
     setSystemPrompt,
@@ -45,14 +50,99 @@ export const Composer: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [paramsOpen, setParamsOpen] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
   const activeModel = models.find(m => m.modelId === activeModelId || m.id === activeModelId);
-  const supportsVision = activeModel?.capabilities?.vision ?? false;
+
+  const getModelDisplayName = (): string => {
+    const raw = activeModel?.displayName || activeModel?.name || activeModelId || 'AI';
+    let name = raw;
+    if (name.includes(':')) name = name.split(':').pop() || name;
+    if (name.includes('/')) name = name.split('/').pop() || name;
+    name = name.replace(/:free$/i, '').trim();
+
+    if (/qwen/i.test(name)) {
+      if (/3\.8/i.test(name)) return 'Qwen 3.8';
+      if (/3\.7/i.test(name)) return 'Qwen 3.7';
+      if (/3\.5/i.test(name)) return 'Qwen 3.5';
+      return 'Qwen';
+    }
+    if (/claude/i.test(name)) {
+      if (/sonnet/i.test(name)) return 'Claude Sonnet';
+      if (/opus/i.test(name)) return 'Claude Opus';
+      if (/haiku/i.test(name)) return 'Claude Haiku';
+      return 'Claude';
+    }
+    if (/deepseek/i.test(name)) {
+      if (/r1/i.test(name)) return 'DeepSeek R1';
+      if (/v4/i.test(name)) return 'DeepSeek V4';
+      return 'DeepSeek';
+    }
+    if (/gemini/i.test(name)) {
+      if (/flash/i.test(name)) return 'Gemini Flash';
+      if (/pro/i.test(name)) return 'Gemini Pro';
+      return 'Gemini';
+    }
+    if (/gpt/i.test(name)) {
+      const match = name.match(/gpt-[\w.]+/i);
+      return match ? match[0].toUpperCase() : 'GPT';
+    }
+    if (/grok/i.test(name)) return 'Grok';
+    if (/mistral|codestral/i.test(name)) return 'Mistral';
+    if (/kimi/i.test(name)) return 'Kimi';
+    if (/minimax/i.test(name)) return 'MiniMax';
+
+    return activeModel?.displayName || name;
+  };
+
+  const isVisionCapable = (model?: any, modelId?: string): boolean => {
+    if (!model && !modelId) return true;
+    if (model?.capabilities?.vision) return true;
+    const id = (model?.modelId || model?.name || modelId || '').toLowerCase();
+    return (
+      id.includes('vision') ||
+      id.includes('claude') ||
+      id.includes('gpt-4') ||
+      id.includes('gpt-5') ||
+      id.includes('gemini') ||
+      id.includes('qwen') ||
+      id.includes('vl') ||
+      id.includes('grok') ||
+      id.includes('minimax') ||
+      id.includes('sensenova')
+    );
+  };
+
+  // Close attachment dropdown when clicking outside or pressing Escape
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setAttachMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAttachMenuOpen(false);
+    };
+
+    if (attachMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [attachMenuOpen]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -73,7 +163,9 @@ export const Composer: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && settings.sendOnEnter) {
+    // Regular Enter now only adds a new line (does NOT send).
+    // Ctrl+Enter or Cmd+Enter can be used to send from physical keyboard.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       handleSend();
     }
@@ -84,9 +176,8 @@ export const Composer: React.FC = () => {
     setIsUploading(true);
     for (const file of Array.from(files)) {
       const isImg = file.type.startsWith('image/');
-      if (isImg && !supportsVision) {
-        addToast(`Model "${activeModel?.displayName || activeModelId}" does not support vision/image input.`, 'error');
-        continue;
+      if (isImg && !isVisionCapable(activeModel, activeModelId)) {
+        addToast(`Perhatian: Model "${activeModel?.displayName || activeModelId}" mungkin kurang optimal untuk analisis visual/mata. Disarankan gunakan Claude Sonnet atau GPT-4o.`, 'info');
       }
 
       const formData = new FormData();
@@ -169,11 +260,36 @@ export const Composer: React.FC = () => {
         isDragging ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''
       }`}
     >
-      {/* Hidden file input */}
+      {/* Hidden file inputs for Gallery, Camera, and Documents */}
+      <input
+        type="file"
+        ref={galleryInputRef}
+        accept="image/*"
+        onChange={(e) => {
+          if (e.target.files) handleFileUpload(e.target.files);
+          e.target.value = '';
+        }}
+        multiple
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={cameraInputRef}
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          if (e.target.files) handleFileUpload(e.target.files);
+          e.target.value = '';
+        }}
+        className="hidden"
+      />
       <input
         type="file"
         ref={fileInputRef}
-        onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+        onChange={(e) => {
+          if (e.target.files) handleFileUpload(e.target.files);
+          e.target.value = '';
+        }}
         multiple
         className="hidden"
       />
@@ -256,7 +372,7 @@ export const Composer: React.FC = () => {
       )}
 
       {/* Main Composer Box */}
-      <div className="relative flex flex-col rounded-2xl border border-border bg-card shadow-sm hover:border-border/80 focus-within:border-primary/50 transition-all">
+      <div className="relative flex flex-col rounded-2xl border border-border/60 bg-card/75 backdrop-blur-xl shadow-md hover:border-border focus-within:border-foreground/30 focus-within:shadow-xl transition-all">
         {/* Attachment preview pills */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 p-3 pb-0">
@@ -267,7 +383,7 @@ export const Composer: React.FC = () => {
               >
                 {att.mimeType.startsWith('image/') || att.url.match(/\.(png|jpg|jpeg|webp)$/i) ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={att.url} alt={att.name} className="w-5 h-5 rounded object-cover" />
+                  <img src={att.dataUrl || att.url} alt={att.name} className="w-7 h-7 rounded-md object-cover border border-border/50 shadow-xs" />
                 ) : (
                   <FileText className="w-4 h-4 text-primary shrink-0" />
                 )}
@@ -293,86 +409,157 @@ export const Composer: React.FC = () => {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="Message AI assistant... (Shift+Enter for new line)"
+          placeholder={messages.length > 0 ? `Balas ${getModelDisplayName()}...` : `Tanya apa saja ke ${getModelDisplayName()}...`}
           rows={1}
-          className="w-full px-4 pt-3.5 pb-2 rounded-t-2xl bg-transparent text-foreground placeholder:text-muted-foreground/60 text-base sm:text-[15px] resize-none focus:outline-none leading-relaxed"
+          className="w-full px-4 pt-3.5 pb-2 bg-transparent text-foreground placeholder:text-muted-foreground/60 text-base sm:text-[15px] resize-none focus:outline-none leading-relaxed"
         />
 
-        {/* Composer Toolbar */}
+        {/* Composer Toolbar - Claude Style */}
         <div className="flex items-center justify-between px-3 py-2 text-muted-foreground">
-          {/* Left tools: Attachment, Parameters, Model info */}
-          <div className="flex items-center gap-1">
+          {/* Left tools: Circular Plus & Model pill */}
+          <div className="flex items-center gap-2">
+            {/* Attachment Button & Popup Menu */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAttachMenuOpen(!attachMenuOpen)}
+                disabled={isUploading}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all touch-manipulation ${
+                  attachMenuOpen
+                    ? 'bg-foreground text-background shadow-md'
+                    : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground'
+                }`}
+                title="Lampirkan foto atau dokumen"
+                aria-label="Lampirkan foto atau dokumen"
+              >
+                <Plus className={`w-4 h-4 transition-transform duration-200 ${attachMenuOpen ? 'rotate-45' : ''}`} />
+              </button>
+
+              {/* Elegant Dropdown / Floating Card for Gallery, Camera & Files */}
+              {attachMenuOpen && (
+                <div
+                  ref={attachMenuRef}
+                  className="absolute bottom-11 left-0 z-40 flex flex-col gap-1 p-1.5 rounded-2xl border border-border/80 bg-card/95 backdrop-blur-2xl shadow-2xl min-w-[210px] animate-in fade-in zoom-in-95 duration-150 text-foreground"
+                >
+                  {/* Option 1: Galeri Foto (Direct Photo Gallery Picker) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachMenuOpen(false);
+                      galleryInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted text-foreground text-xs font-medium transition-colors text-left group touch-manipulation"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <ImageIcon className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Galeri Foto</div>
+                      <div className="text-[10px] text-muted-foreground">Album & galeri perangkat</div>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Kamera Langsung (Direct Camera Snap) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachMenuOpen(false);
+                      cameraInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted text-foreground text-xs font-medium transition-colors text-left group touch-manipulation"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <Camera className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Ambil Foto (Kamera)</div>
+                      <div className="text-[10px] text-muted-foreground">Potret langsung</div>
+                    </div>
+                  </button>
+
+                  {/* Option 3: Dokumen & File */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachMenuOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted text-foreground text-xs font-medium transition-colors text-left group touch-manipulation"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Dokumen & File</div>
+                      <div className="text-[10px] text-muted-foreground">PDF, TXT, kode, arsip</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Claude Model Selector Pill */}
             <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="p-2 min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg hover:text-foreground hover:bg-muted transition-colors text-xs font-medium touch-manipulation"
-              title="Attach File or Image"
-              aria-label="Attach File"
+              onClick={() => useUIStore.getState().setModelSelectorOpen(true)}
+              className="px-3 py-1.5 rounded-full bg-muted/60 hover:bg-muted text-foreground text-xs font-medium flex items-center gap-1.5 transition-colors max-w-[180px] sm:max-w-xs truncate touch-manipulation"
+              title="Pilih Model"
             >
-              <Paperclip className="w-4 h-4" />
+              <span className="truncate">{activeModel?.displayName || activeModelId || 'Claude'}</span>
             </button>
 
             <button
               onClick={() => setParamsOpen(!paramsOpen)}
-              className={`p-2 min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg transition-colors touch-manipulation ${
-                paramsOpen ? 'text-primary bg-primary/10' : 'hover:text-foreground hover:bg-muted'
+              className={`p-1.5 rounded-lg transition-colors touch-manipulation ${
+                paramsOpen ? 'text-primary bg-primary/10' : 'text-muted-foreground/70 hover:text-foreground'
               }`}
-              title="Parameters & System Prompt"
-              aria-label="Parameters"
+              title="Parameter AI"
+              aria-label="Parameter AI"
             >
-              <SlidersHorizontal className="w-4 h-4" />
+              <SlidersHorizontal className="w-3.5 h-3.5" />
             </button>
-
-            {/* Agent Tools / Web Search status badge */}
-            {activeProviderId === 'antigravity' ? (
-              <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30"
-                title="Antigravity Native Agent aktif: Mendukung Web Search real-time, terminal automation, bash, dan file workspace"
-              >
-                <Globe className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                <span className="hidden xs:inline">Web Search & VPS Tools</span>
-              </span>
-            ) : !supportsVision ? (
-              <span
-                className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-muted-foreground/80 bg-muted/40"
-                title="This model does not support image input"
-              >
-                <AlertTriangle className="w-3 h-3 text-amber-500/80" />
-                <span>Text only</span>
-              </span>
-            ) : null}
           </div>
 
-          {/* Right tool: Send or Stop */}
-          <div className="flex items-center gap-2">
+          {/* Right tool: Voice/Waveform icons or Send/Stop button */}
+          <div className="flex items-center gap-1">
             {isGenerating ? (
               <button
                 onClick={stopGeneration}
-                className="flex items-center gap-1.5 min-h-[38px] px-3.5 py-1.5 rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-medium text-xs transition-all shadow-xs active:scale-95 touch-manipulation"
-                title="Hentikan pembuatan respon (Esc)"
+                className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center hover:opacity-90 active:scale-95 transition-all touch-manipulation"
+                title="Hentikan"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Hentikan</span>
               </button>
-            ) : (
+            ) : input.trim() || attachments.length > 0 ? (
               <button
                 onClick={handleSend}
-                disabled={!input.trim() && attachments.length === 0}
-                className="flex items-center gap-1.5 min-h-[38px] px-4 py-1.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-30 disabled:pointer-events-none font-semibold text-xs transition-all shadow-xs active:scale-95 touch-manipulation"
-                title="Kirim pesan (Enter)"
+                className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 active:scale-95 transition-all shadow-sm touch-manipulation"
+                title="Kirim pesan"
                 aria-label="Kirim pesan"
               >
-                <span>Kirim</span>
-                <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
               </button>
+            ) : (
+              <div className="flex items-center gap-1 text-muted-foreground/70">
+                <button
+                  type="button"
+                  onClick={() => useUIStore.getState().addToast('Voice input siap digunakan', 'info')}
+                  className="p-1.5 rounded-full hover:text-foreground hover:bg-muted/40 transition-colors touch-manipulation"
+                  title="Voice input"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => useUIStore.getState().addToast('Voice mode siap digunakan', 'info')}
+                  className="p-1.5 rounded-full hover:text-foreground hover:bg-muted/40 transition-colors touch-manipulation"
+                  title="Audio mode"
+                >
+                  <AudioWaveform className="w-4 h-4" />
+                </button>
+              </div>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Subtle keyboard hint */}
-      <div className="text-center mt-1.5 text-[11px] text-muted-foreground/60 hidden sm:block">
-        Press <kbd className="font-mono bg-muted/60 px-1 py-0.5 rounded text-[10px]">Enter</kbd> to send, <kbd className="font-mono bg-muted/60 px-1 py-0.5 rounded text-[10px]">Shift + Enter</kbd> for new line
       </div>
     </div>
   );

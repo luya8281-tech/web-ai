@@ -14,7 +14,7 @@ const defaultSettings: UserSettings = {
   theme: 'dark',
   fontSize: 'normal',
   compactMode: false,
-  sendOnEnter: true,
+  sendOnEnter: false,
   autoTitle: true,
   showTimestamps: true,
   streamResponses: true,

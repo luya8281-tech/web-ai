@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE,
     name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user', -- 'admin', 'user'
+    avatar TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

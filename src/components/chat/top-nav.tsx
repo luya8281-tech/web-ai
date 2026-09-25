@@ -13,6 +13,8 @@ import {
   Eye,
   Brain,
   Wrench,
+  MoreVertical,
+  ArrowLeft,
 } from 'lucide-react';
 import { useChatStore } from '@/stores/chat-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -66,57 +68,19 @@ export const TopNav: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between h-14 px-3 sm:px-4 border-b border-border bg-background/95 backdrop-blur-sm">
-      {/* Left section: Sidebar toggle & Model selector */}
-      <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-20 flex items-center justify-between h-14 px-3 sm:px-4 border-b border-border/40 bg-background/95 backdrop-blur-sm">
+      {/* Left: Menu toggle */}
+      <div className="flex items-center gap-1.5">
         <button
           onClick={toggleSidebar}
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
           title="Toggle sidebar (Ctrl+B)"
           aria-label="Toggle sidebar"
         >
           <Menu className="w-5 h-5" />
         </button>
 
-        <button
-          onClick={() => newChat()}
-          className="flex items-center justify-center p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs font-medium"
-          title="New Chat (Ctrl+Shift+O)"
-          aria-label="New Chat"
-        >
-          <Plus className="w-4 h-4 stroke-[2.2]" />
-        </button>
-
-        {/* Model Selector Pill */}
-        <button
-          onClick={() => setModelSelectorOpen(true)}
-          className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full border border-border/70 bg-card hover:bg-muted/80 text-foreground transition-all shadow-sm max-w-[130px] min-[380px]:max-w-[180px] sm:max-w-xs"
-        >
-          <div className="flex items-center gap-1.5 truncate">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-            <span className="font-semibold text-xs sm:text-sm truncate">
-              {activeModel?.displayName || activeModelId || 'Select Model'}
-            </span>
-          </div>
-
-          {/* Quick Capability Icons */}
-          <div className="hidden md:flex items-center gap-1 text-muted-foreground/80 shrink-0">
-            {activeModel?.capabilities.reasoning && (
-              <span title="Reasoning model">
-                <Brain className="w-3.5 h-3.5 text-purple-400" />
-              </span>
-            )}
-            {activeModel?.capabilities.vision && (
-              <span title="Vision capable">
-                <Eye className="w-3.5 h-3.5 text-blue-400" />
-              </span>
-            )}
-          </div>
-
-          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0 ml-0.5" />
-        </button>
-
-        {/* Project Tag */}
+        {/* Project Tag (desktop) */}
         {activeProject && (
           <span
             className="hidden lg:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border"
@@ -127,74 +91,31 @@ export const TopNav: React.FC = () => {
         )}
       </div>
 
-      {/* Right section: Temporary chat, Export, Settings */}
-      <div className="flex items-center gap-0.5 sm:gap-2">
-        {/* Temporary / Private Chat Indicator */}
+      {/* Center: Conversation Title or Claude Branding */}
+      <div className="text-center truncate px-2 max-w-[180px] sm:max-w-xs md:max-w-md">
+        <span className="font-medium text-xs sm:text-sm text-foreground/85 truncate block">
+          {activeConversation?.title || 'Claude'}
+        </span>
+      </div>
+
+      {/* Right: New Chat Pill (+) & More Options (⋮) */}
+      <div className="flex items-center gap-1.5">
         <button
-          onClick={() => setTemporaryChat(!temporaryChat)}
-          className={`flex items-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            temporaryChat
-              ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-          }`}
-          title="Temporary Chat (Not saved in history)"
+          onClick={() => newChat()}
+          className="w-8 h-8 rounded-full bg-muted/70 hover:bg-muted text-foreground flex items-center justify-center transition-colors shadow-xs"
+          title="Percakapan Baru"
+          aria-label="Percakapan Baru"
         >
-          <Shield className="w-4 h-4" />
-          <span className="hidden sm:inline">
-            {temporaryChat ? 'Incognito' : 'Temporary'}
-          </span>
+          <Plus className="w-4 h-4 stroke-[2.2]" />
         </button>
 
-        {/* Share / Export Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setExportOpen(!exportOpen)}
-            disabled={!activeConversation}
-            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 transition-colors"
-            title="Export conversation"
-            aria-label="Export conversation"
-          >
-            <Share2 className="w-4 h-4" />
-          </button>
-
-          {exportOpen && (
-            <div className="absolute right-0 mt-2 w-44 rounded-xl border border-border bg-card shadow-lg py-1.5 z-30 animate-fade-in text-xs font-medium">
-              <div className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border/50">
-                Export Chat
-              </div>
-              <button
-                onClick={() => handleExport('markdown')}
-                className="w-full text-left px-3 py-2 hover:bg-muted flex items-center justify-between text-foreground"
-              >
-                <span>Markdown (.md)</span>
-                <Download className="w-3.5 h-3.5 text-muted-foreground" />
-              </button>
-              <button
-                onClick={() => handleExport('json')}
-                className="w-full text-left px-3 py-2 hover:bg-muted flex items-center justify-between text-foreground"
-              >
-                <span>JSON (.json)</span>
-                <Download className="w-3.5 h-3.5 text-muted-foreground" />
-              </button>
-              <button
-                onClick={() => handleExport('txt')}
-                className="w-full text-left px-3 py-2 hover:bg-muted flex items-center justify-between text-foreground"
-              >
-                <span>Plain Text (.txt)</span>
-                <Download className="w-3.5 h-3.5 text-muted-foreground" />
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Settings button */}
         <button
           onClick={() => setSettingsOpen(true)}
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title="Settings (Ctrl+,)"
-          aria-label="Settings"
+          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+          title="Pengaturan"
+          aria-label="Pengaturan"
         >
-          <Settings className="w-4 h-4" />
+          <MoreVertical className="w-5 h-5" />
         </button>
       </div>
     </header>

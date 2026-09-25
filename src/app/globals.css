@@ -4,62 +4,62 @@
 
 @layer base {
   :root {
-    --background: #ffffff;
-    --foreground: #09090b;
-    --card: #fafafa;
-    --card-foreground: #09090b;
+    --background: #fbfaf8;
+    --foreground: #1c1b18;
+    --card: #ffffff;
+    --card-foreground: #1c1b18;
     --popover: #ffffff;
-    --popover-foreground: #09090b;
-    --primary: #10a37f;
+    --popover-foreground: #1c1b18;
+    --primary: #cc785c;
     --primary-foreground: #ffffff;
-    --primary-hover: #0d8a6b;
-    --secondary: #f4f4f5;
-    --secondary-foreground: #18181b;
-    --secondary-hover: #e4e4e7;
-    --muted: #f4f4f5;
-    --muted-foreground: #71717a;
-    --accent: #f4f4f5;
-    --accent-foreground: #18181b;
+    --primary-hover: #b5674c;
+    --secondary: #f3f1ec;
+    --secondary-foreground: #1c1b18;
+    --secondary-hover: #eae7e0;
+    --muted: #f3f1ec;
+    --muted-foreground: #7d7a72;
+    --accent: #f3f1ec;
+    --accent-foreground: #1c1b18;
     --destructive: #ef4444;
     --destructive-foreground: #ffffff;
-    --border: #e4e4e7;
-    --input: #e4e4e7;
-    --ring: #10a37f;
-    --sidebar: #f8f8f9;
-    --sidebar-foreground: #18181b;
-    --sidebar-border: #e4e4e7;
-    --sidebar-accent: #ececee;
-    --sidebar-accent-foreground: #18181b;
+    --border: #e6e3dc;
+    --input: #e6e3dc;
+    --ring: #cc785c;
+    --sidebar: #f5f3ee;
+    --sidebar-foreground: #1c1b18;
+    --sidebar-border: #e6e3dc;
+    --sidebar-accent: #eae7e0;
+    --sidebar-accent-foreground: #1c1b18;
     --radius: 0.75rem;
   }
 
   .dark {
-    --background: #09090b;
-    --foreground: #f4f4f5;
-    --card: #121215;
-    --card-foreground: #f4f4f5;
-    --popover: #121215;
-    --popover-foreground: #f4f4f5;
-    --primary: #10a37f;
+    --background: #111110;
+    --foreground: #ede8df;
+    --card: #191918;
+    --card-foreground: #ede8df;
+    --popover: #191918;
+    --popover-foreground: #ede8df;
+    --primary: #cc785c;
     --primary-foreground: #ffffff;
-    --primary-hover: #13b38c;
-    --secondary: #18181b;
-    --secondary-foreground: #f4f4f5;
-    --secondary-hover: #27272a;
-    --muted: #1a1a1e;
-    --muted-foreground: #9ca3af;
-    --accent: #1e1e24;
-    --accent-foreground: #f4f4f5;
+    --primary-hover: #db8569;
+    --secondary: #21211e;
+    --secondary-foreground: #ede8df;
+    --secondary-hover: #2b2b27;
+    --muted: #21211e;
+    --muted-foreground: #8e8b82;
+    --accent: #21211e;
+    --accent-foreground: #ede8df;
     --destructive: #ef4444;
     --destructive-foreground: #ffffff;
-    --border: #27272a;
-    --input: #27272a;
-    --ring: #10a37f;
-    --sidebar: #0d0d10;
-    --sidebar-foreground: #f4f4f5;
-    --sidebar-border: #222226;
-    --sidebar-accent: #19191e;
-    --sidebar-accent-foreground: #f4f4f5;
+    --border: #262624;
+    --input: #262624;
+    --ring: #cc785c;
+    --sidebar: #0c0c0b;
+    --sidebar-foreground: #ede8df;
+    --sidebar-border: #1e1e1c;
+    --sidebar-accent: #191918;
+    --sidebar-accent-foreground: #ede8df;
   }
 }
 
@@ -71,6 +71,15 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Claude Signature Serif Font for Reading Text */
+.font-serif,
+.prose,
+.prose p,
+.prose li,
+.prose blockquote {
+  font-family: var(--font-serif), Georgia, Cambria, "Times New Roman", Times, serif;
 }
 
 /* Custom minimal scrollbar */
@@ -87,4 +96,48 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
+}
+
+/* Claude Natural Typography Spacing */
+.prose p {
+  margin-top: 0 !important;
+  margin-bottom: 0.75em !important;
+  line-height: 1.6 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+.prose p:empty {
+  display: none !important;
+}
+.prose li {
+  margin-top: 0.15em !important;
+  margin-bottom: 0.25em !important;
+  line-height: 1.55 !important;
+}
+.prose li > p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  display: inline !important;
+}
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  margin-top: 1.1em !important;
+  margin-bottom: 0.35em !important;
+  font-weight: 600 !important;
+}
+.prose ul, .prose ol {
+  margin-top: 0.3em !important;
+  margin-bottom: 0.6em !important;
+}
+
+/* User Message Bubble - Claude Modern Sans Typography */
+.user-bubble,
+.user-bubble .prose,
+.user-bubble .prose p,
+.user-bubble .prose li {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+}
+
+.user-bubble pre,
+.user-bubble code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
 }

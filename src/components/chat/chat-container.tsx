@@ -8,6 +8,9 @@ import { EmptyState } from './empty-state';
 import { Composer } from './composer';
 import { TopNav } from './top-nav';
 import { MarkdownRenderer } from '../markdown/markdown-renderer';
+import { LiveThinkingAccordion } from './live-thinking-accordion';
+import { LiveActionCard } from './live-action-card';
+import { CornerActionHUD } from './corner-action-hud';
 
 export const ChatContainer: React.FC = () => {
   const {
@@ -15,33 +18,123 @@ export const ChatContainer: React.FC = () => {
     isGenerating,
     generatingContent,
     generatingReasoning,
+    generatingActions,
     activeModelId,
     activeProviderId,
     stopGeneration,
   } = useChatStore();
 
+  // Auth state is seeded by chat-app.tsx, no need to re-fetch on mount
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const userScrolledUpRef = useRef<boolean>(false);
+  const prevMessagesLengthRef = useRef<number>(messages.length);
 
-  // Auto-scroll on new message or streaming token
+  // Scroll to bottom ONLY when a user sends a new message (never when assistant finishes)
   useEffect(() => {
-    if (!showScrollBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length > prevMessagesLengthRef.current) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage?.role === 'user') {
+        userScrolledUpRef.current = false;
+        setShowScrollBottom(false);
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        // Assistant message finished!
+        // DO NOT scroll down! Preserve the user's reading position.
+        const container = scrollContainerRef.current;
+        if (container) {
+          const { scrollTop, scrollHeight, clientHeight } = container;
+          const isAtBottom = scrollHeight - scrollTop - clientHeight < 60;
+          if (!isAtBottom) {
+            setShowScrollBottom(true);
+            userScrolledUpRef.current = true;
+          }
+        }
+      }
     }
-  }, [messages, generatingContent, generatingReasoning, showScrollBottom]);
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages]);
 
-  // Handle scroll detection
+  // Handle live token stream: DO NOT use smooth scrollIntoView on every token!
+  // Only anchor to bottom if the user has NOT scrolled up and is already at the bottom
+  useEffect(() => {
+    if (userScrolledUpRef.current) return; // User is reading above -> Freeze auto-scroll completely!
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+    // Only stay pinned if user was already within 60px of the bottom
+    if (distanceFromBottom < 60) {
+      container.scrollTop = scrollHeight;
+    }
+  }, [generatingContent, generatingReasoning]);
+
+  // Handle scroll detection and user scroll intention
   const handleScroll = () => {
-    if (!scrollContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-    setShowScrollBottom(!isNearBottom);
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 60;
+
+    if (isAtBottom) {
+      userScrolledUpRef.current = false;
+      setShowScrollBottom(false);
+    } else {
+      userScrolledUpRef.current = true;
+      setShowScrollBottom(true);
+    }
   };
 
+  // Wheel and touch listeners: if user scrolls or swipes up, immediately freeze auto-scroll
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        // User scrolled UP
+        userScrolledUpRef.current = true;
+        setShowScrollBottom(true);
+      }
+    };
+
+    let touchStartY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches && e.touches.length > 0) {
+        touchStartY = e.touches[0].clientY;
+      }
+    };
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches && e.touches.length > 0) {
+        const touchY = e.touches[0].clientY;
+        if (touchY > touchStartY + 4) {
+          // User swiped down to see older content above
+          userScrolledUpRef.current = true;
+          setShowScrollBottom(true);
+        }
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: true });
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, []);
+
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    userScrolledUpRef.current = false;
     setShowScrollBottom(false);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   // Keyboard shortcut listener for Escape to stop generation
@@ -56,9 +149,14 @@ export const ChatContainer: React.FC = () => {
   }, [isGenerating, stopGeneration]);
 
   const hasMessages = messages.length > 0 || isGenerating;
+  const isExecuting = isGenerating && generatingActions.some((a) => a.status === 'running');
+  const currentRunningAction = generatingActions.find((a) => a.status === 'running') || (generatingActions.length > 0 ? generatingActions[generatingActions.length - 1] : null);
 
   return (
-    <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden bg-background">
+    <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden bg-background relative">
+      {/* 4-Corner Animated Action HUD for Workspace */}
+      <CornerActionHUD isExecuting={isExecuting} currentAction={currentRunningAction} />
+
       {/* Top Header */}
       <TopNav />
 
@@ -78,7 +176,6 @@ export const ChatContainer: React.FC = () => {
                 key={message.id || idx}
                 message={message}
                 isLastAssistant={
-                  !isGenerating &&
                   idx === messages.length - 1 &&
                   message.role === 'assistant'
                 }
@@ -87,49 +184,42 @@ export const ChatContainer: React.FC = () => {
 
             {/* Live Streaming Assistant Message */}
             {isGenerating && (
-              <div className="w-full py-4 sm:py-6 px-3 sm:px-6 bg-muted/15 border-y border-border/30">
-                <div className="max-w-3xl mx-auto flex gap-3 sm:gap-4">
-                  {/* Avatar */}
-                  <div className="shrink-0 pt-0.5">
-                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-semibold text-xs shadow-sm animate-pulse-subtle">
-                      <Sparkles className="w-4 h-4" />
+              <div className="w-full py-3.5 sm:py-4 px-4 sm:px-6 flex justify-center transition-colors">
+                <div className="w-full max-w-3xl">
+                  {/* Content Area */}
+                  <div className="group min-w-0 w-full">
+
+                  {/* Live Reasoning Output (Collapsible Accordion) */}
+                  {generatingReasoning && (
+                    <LiveThinkingAccordion reasoning={generatingReasoning} isLive={true} />
+                  )}
+
+                  {/* Live Server Action Dropdown Cards - One for each execution step */}
+                  {generatingActions.length > 0 && (
+                    <div className="flex flex-col gap-1.5 my-2.5">
+                      {generatingActions.map((action, idx) => (
+                        <LiveActionCard key={action.id || idx} action={action} />
+                      ))}
                     </div>
-                  </div>
+                  )}
 
-                  {/* Streaming Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
-                      <span className="font-semibold text-foreground">{activeModelId}</span>
-                      <span className="px-1.5 py-0.5 rounded bg-muted text-[10px] uppercase font-medium">
-                        {activeProviderId}
-                      </span>
+                  {/* Progressive Markdown Token Render */}
+                  {generatingContent ? (
+                    <MarkdownRenderer 
+                      content={generatingContent
+                        .replace(/\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):[\s\S]*?\]/gi, '')
+                        .replace(/\*⚡ Executing tools\.\.\.\*/gi, '')
+                        .replace(/\n{3,}/g, '\n\n')} 
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      <span>Assistant is thinking...</span>
                     </div>
-
-                    {/* Live Reasoning Output */}
-                    {generatingReasoning && (
-                      <div className="my-2 p-3 rounded-lg border border-purple-500/20 bg-purple-950/10 text-xs">
-                        <div className="flex items-center gap-2 text-purple-400 font-medium mb-1">
-                          <Brain className="w-3.5 h-3.5 animate-pulse" />
-                          <span>Thinking...</span>
-                        </div>
-                        <div className="text-muted-foreground font-mono text-[12px] whitespace-pre-wrap leading-relaxed">
-                          {generatingReasoning}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Progressive Markdown Token Render */}
-                    {generatingContent ? (
-                      <MarkdownRenderer content={generatingContent} />
-                    ) : (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
-                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                        <span>Assistant is thinking...</span>
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
+            </div>
             )}
 
             <div ref={messagesEndRef} className="h-4" />
@@ -141,7 +231,7 @@ export const ChatContainer: React.FC = () => {
       {showScrollBottom && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-24 right-6 sm:right-10 p-2.5 rounded-full bg-card border border-border shadow-md hover:bg-muted text-foreground transition-all z-10"
+          className="absolute bottom-28 left-1/2 -translate-x-1/2 p-2 rounded-full bg-card/90 backdrop-blur-md border border-border/60 shadow-lg hover:bg-muted text-foreground/80 hover:text-foreground transition-all z-10"
           title="Scroll to bottom"
         >
           <ArrowDown className="w-4 h-4" />

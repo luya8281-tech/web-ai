@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Conversation, Message, Model, Provider, Project, Attachment } from '@/types/chat';
+import { Conversation, Message, Model, Provider, Project, Attachment, ActionInfo } from '@/types/chat';
 import { useUIStore } from './ui-store';
 
 interface ChatState {
@@ -18,6 +18,7 @@ interface ChatState {
   isGenerating: boolean;
   generatingReasoning: string;
   generatingContent: string;
+  generatingActions: ActionInfo[];
   generatingUsage?: { promptTokens: number; completionTokens: number; totalTokens: number; latencyMs?: number };
   abortController: AbortController | null;
 
@@ -74,6 +75,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isGenerating: false,
   generatingReasoning: '',
   generatingContent: '',
+  generatingActions: [],
   generatingUsage: undefined,
   abortController: null,
 
@@ -269,6 +271,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isGenerating: true,
       generatingReasoning: '',
       generatingContent: '',
+      generatingActions: [],
       generatingUsage: undefined,
       abortController,
       attachments: [], // Clear attachments on send
@@ -311,6 +314,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       let fullContent = '';
       let fullReasoning = '';
 
+      // High-performance 60fps render scheduler to eliminate markdown re-parse stutter
+      let rafId: number | null = null;
+      const scheduleRender = () => {
+        if (rafId === null && typeof window !== 'undefined') {
+          rafId = requestAnimationFrame(() => {
+            set({
+              generatingContent: fullContent,
+              generatingReasoning: fullReasoning,
+            });
+            rafId = null;
+          });
+        }
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -344,18 +361,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 }
                 get().loadConversations();
               }
+            } else if (eventType === 'action') {
+              // Real-time live action update with status & details
+              const actionData = data as ActionInfo;
+              set((curr) => {
+                const existingIdx = curr.generatingActions.findIndex(
+                  (a) => (actionData.id && a.id === actionData.id) || a.label === actionData.label
+                );
+                if (existingIdx !== -1) {
+                  const updated = [...curr.generatingActions];
+                  updated[existingIdx] = { ...updated[existingIdx], ...actionData };
+                  return { generatingActions: updated };
+                }
+                return { generatingActions: [...curr.generatingActions, actionData] };
+              });
             } else if (eventType === 'reasoning') {
               fullReasoning += data.reasoning;
-              set({ generatingReasoning: fullReasoning });
+              scheduleRender();
             } else if (eventType === 'token') {
               fullContent += data.content;
-              set({ generatingContent: fullContent });
+              scheduleRender();
             } else if (eventType === 'usage') {
               set({ generatingUsage: data });
             } else if (eventType === 'error') {
               useUIStore.getState().addToast(data.error, 'error');
               fullContent += `\n\n> ⚠️ *Error: ${data.error}*`;
-              set({ generatingContent: fullContent });
+              scheduleRender();
             } else if (eventType === 'done') {
               // Final event
             }
@@ -363,7 +394,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
-      // Finalize assistant message into history
+      // Flush final content immediately
+      if (rafId !== null && typeof window !== 'undefined') {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      set({
+        generatingContent: fullContent,
+        generatingReasoning: fullReasoning,
+      });
+
+      // Finalize assistant message into history with persistent action history
       const finalizedAssistantMsg: Message = {
         id: assistantMsgId,
         conversationId: activeConvId || 'temp',
@@ -377,6 +418,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           tokenInput: get().generatingUsage?.promptTokens,
           tokenOutput: get().generatingUsage?.completionTokens,
           totalTokens: get().generatingUsage?.totalTokens,
+          actions: get().generatingActions, // Persist live action history into message metadata!
         },
       };
 
@@ -386,6 +428,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         abortController: null,
         generatingContent: '',
         generatingReasoning: '',
+        generatingActions: [],
       }));
 
       // Refresh conversations list to update title and timestamps
@@ -405,6 +448,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             model: state.activeModelId,
             provider: state.activeProviderId,
             createdAt: new Date().toISOString(),
+            metadata: {
+              actions: get().generatingActions,
+            },
           };
           set((curr) => ({ messages: [...curr.messages, interruptedMsg] }));
         }
@@ -417,6 +463,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         abortController: null,
         generatingContent: '',
         generatingReasoning: '',
+        generatingActions: [],
       });
     }
   },

@@ -141,7 +141,7 @@ export class ProviderRepository {
   }
 
   static deleteProvider(id: string): boolean {
-    const result = db.prepare('DELETE FROM providers WHERE id = ? AND is_system = 0').run(id);
+    const result = db.prepare('DELETE FROM providers WHERE id = ?').run(id);
     return result.changes > 0;
   }
 
