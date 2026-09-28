@@ -41,7 +41,7 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({ message, is
     try {
       const cleanText = message.content
         .replace(/\[\/?BALASAN_AKHIR\]/gi, '')
-        .replace(/\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):[\s\S]*?\]/gi, '')
+        .replace(/\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):[\s\S]*?(?:\]|(?=\s*\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):)|$)/gi, '')
         .replace(/\[TOOL RESULTS\]:[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '')
         .replace(/(?:TOOL OUTPUT|BASH OUTPUT|SKILL CONTENT|PYTHON OUTPUT):?[\s\S]*?(?=\n\n|$)/gi, '')
         .replace(/\*⚡ Executing tools\.\.\.\*/gi, '')

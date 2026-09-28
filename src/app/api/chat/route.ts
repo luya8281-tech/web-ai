@@ -347,21 +347,22 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
             toolHopCount++;
             try {
               // Real-time Action Progress event for live collapsible UI card
-              const actionMatch = fullAssistantContent.match(/\[([A-Z_]+):\s*([^\]\n\r]+)\]/i);
+              const actionMatch = fullAssistantContent.match(/\[([A-Z_]+):\s*([\s\S]*?)(?:\]|(?=\s*\[[A-Z_]+:)|$)/i);
               let actionName = 'Menjalankan aksi server...';
               let actionType = 'TOOL';
               let actionParam = '';
               if (actionMatch) {
                 actionType = actionMatch[1].toUpperCase();
                 actionParam = actionMatch[2].trim();
+                const firstParamLine = actionParam.split('\n')[0].trim().substring(0, 60);
                 if (actionType === 'BUKA_WEB') actionName = `Membuka halaman web via Google Chrome`;
                 else if (actionType === 'SCREENSHOT_WEB') actionName = `Mengambil tangkapan layar web via Google Chrome`;
-                else if (actionType === 'CARI_WEB') actionName = `Mencari informasi di internet`;
-                else if (actionType === 'RUN_BASH') actionName = `Mengeksekusi perintah server`;
+                else if (actionType === 'CARI_WEB') actionName = `Mencari informasi di internet: "${firstParamLine}"`;
+                else if (actionType === 'RUN_BASH') actionName = `Mengeksekusi perintah server: ${firstParamLine}`;
                 else if (actionType === 'RUN_PYTHON') actionName = `Menjalankan analisis Python di server`;
-                else if (actionType === 'BACA_SKILL') actionName = `Membaca modul keahlian khusus`;
+                else if (actionType === 'BACA_SKILL') actionName = `Membaca modul keahlian: ${firstParamLine}`;
                 else if (actionType === 'INSTALL_SKILL') actionName = `Menginstal modul keahlian baru`;
-                else actionName = `Menjalankan aksi server`;
+                else actionName = `Menjalankan aksi server: ${actionType}`;
               }
 
               const actionId = `act_${Date.now()}_${toolHopCount}`;

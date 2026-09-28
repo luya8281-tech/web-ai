@@ -5,19 +5,21 @@ import { ActionInfo } from '@/types/chat';
 import { MarkdownRenderer } from '../markdown/markdown-renderer';
 import { LiveActionCard } from './live-action-card';
 
-const ACTION_TAG_REGEX = /\[(CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):\s*([^\]\r\n]+)\]/gi;
+const TOOL_NAMES = 'CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR';
+const ACTION_TAG_REGEX = new RegExp(`\\[(${TOOL_NAMES}):\\s*([\\s\\S]*?)(?:\\]|(?=\\s*\\[(?:${TOOL_NAMES}):)|$)`, 'gi');
 
 function cleanMarkdownText(text: string, isLive = false): string {
   let cleaned = text
     .replace(/\[\/?BALASAN_AKHIR\]/gi, '')
+    .replace(new RegExp(`\\[(?:${TOOL_NAMES}):[\\s\\S]*?(?:\\]|(?=\\s*\\[(?:${TOOL_NAMES}):)|$)`, 'gi'), '')
     .replace(/\[TOOL RESULTS\]:[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '')
     .replace(/(?:TOOL OUTPUT|BASH OUTPUT|SKILL CONTENT|PYTHON OUTPUT):?[\s\S]*?(?=\n\n|$)/gi, '')
     .replace(/\*⚡ Executing tools\.\.\.\*/gi, '')
     .replace(/\n{3,}/g, '\n\n');
 
   if (isLive) {
-    // Hide trailing partial tag during live streaming (e.g. "[/BALASAN" or "[BALASAN_")
-    cleaned = cleaned.replace(/\s*\[\/?(?:BALASAN_AKHIR|BALASAN|BALASA|BALAS|BALA|BAL|BA|B)\]?$/i, '');
+    // Hide trailing partial tag during live streaming (e.g. "[RUN_BASH" or "[CARI_")
+    cleaned = cleaned.replace(/\s*\[\/?(?:BALASAN_AKHIR|RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|BACA_SKILL|[A-Z_]+)[^\]]*$/i, '');
   }
 
   return cleaned.trim();
@@ -26,14 +28,15 @@ function cleanMarkdownText(text: string, isLive = false): string {
 function getActionLabel(type: string, param: string): string {
   const t = (type || '').toUpperCase();
   const cleanParam = param.trim();
-  if (t === 'BUKA_WEB') return `Membuka halaman web: ${cleanParam.substring(0, 50)}`;
-  if (t === 'SCREENSHOT_WEB') return `Tangkapan layar: ${cleanParam.substring(0, 50)}`;
-  if (t === 'CARI_WEB') return `Mencari informasi: "${cleanParam.substring(0, 45)}"`;
-  if (t === 'RUN_BASH') return `Perintah server: ${cleanParam.substring(0, 40)}`;
-  if (t === 'RUN_PYTHON') return `Analisis Python: ${cleanParam.substring(0, 40)}`;
-  if (t === 'BACA_SKILL') return `Membaca skill: ${cleanParam}`;
-  if (t === 'INSTALL_SKILL') return `Menginstal skill: ${cleanParam}`;
-  return `Aksi sistem: ${cleanParam || t}`;
+  const firstLine = cleanParam.split('\n')[0].trim();
+  if (t === 'BUKA_WEB') return `Membuka halaman web: ${firstLine.substring(0, 50)}`;
+  if (t === 'SCREENSHOT_WEB') return `Tangkapan layar: ${firstLine.substring(0, 50)}`;
+  if (t === 'CARI_WEB') return `Mencari informasi: "${firstLine.substring(0, 45)}"`;
+  if (t === 'RUN_BASH') return `Perintah server: ${firstLine.substring(0, 45)}`;
+  if (t === 'RUN_PYTHON') return `Analisis Python: ${firstLine.substring(0, 45)}`;
+  if (t === 'BACA_SKILL') return `Membaca skill: ${firstLine}`;
+  if (t === 'INSTALL_SKILL') return `Menginstal skill: ${firstLine}`;
+  return `Aksi sistem: ${firstLine || t}`;
 }
 
 interface ActionContentRendererProps {

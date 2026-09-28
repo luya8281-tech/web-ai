@@ -321,24 +321,24 @@ export async function executeTools(aiReply: string): Promise<ToolResult> {
   }
 
   // 4. [RUN_BASH: command]
-  const bashRegex = /\[RUN_BASH:\s*([^\]]+?)\s*\]/gi;
+  const bashRegex = /\[RUN_BASH:\s*([\s\S]*?)(?:\]|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
   const bashMatches = Array.from(cleanReply.matchAll(bashRegex)).slice(0, 3);
   for (const m of bashMatches) {
     const cmd = m[1].trim();
     if (cmd) {
       hasAction = true;
-      console.log(`[ToolExecutor] Running bash: ${cmd}`);
+      console.log(`[ToolExecutor] Running bash: ${cmd.split('\n')[0]}`);
       const result = await runBashCommand(cmd);
       if (result.success) {
-        observationParts.push(`[BASH OUTPUT: ${cmd}]:\n${truncateOutput(result.output, 2000)}`);
+        observationParts.push(`[BASH OUTPUT: ${cmd.substring(0, 100)}]:\n${truncateOutput(result.output, 2000)}`);
       } else {
-        observationParts.push(`[BASH FAILED: ${cmd}]:\nError: ${result.error}\nOutput: ${truncateOutput(result.output, 1000)}`);
+        observationParts.push(`[BASH FAILED: ${cmd.substring(0, 100)}]:\nError: ${result.error}\nOutput: ${truncateOutput(result.output, 1000)}`);
       }
     }
   }
 
   // 5. [RUN_PYTHON: code]
-  const pyRegex = /\[RUN_PYTHON:\s*([\s\S]*?)\s*\]/gi;
+  const pyRegex = /\[RUN_PYTHON:\s*([\s\S]*?)(?:\]|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
   const pyMatches = Array.from(cleanReply.matchAll(pyRegex)).slice(0, 1);
   for (const m of pyMatches) {
     const code = m[1].trim();

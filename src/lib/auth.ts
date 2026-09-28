@@ -74,8 +74,11 @@ export function upsertGitHubUser(profile: {
 }): AuthUser {
   const userId = `gh_${profile.id}`;
   const now = new Date().toISOString();
-  const adminUsername = (process.env.GITHUB_ADMIN_USERNAME || 'vee').toLowerCase().trim();
-  const isOwner = profile.login.toLowerCase().trim() === adminUsername;
+  const adminUsername = (process.env.GITHUB_ADMIN_USERNAME || '').toLowerCase().trim();
+  const existingOwnerCount = (db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ? AND id LIKE ?').get('admin', 'gh_%') as any)?.count || 0;
+  const isOwner = adminUsername
+    ? profile.login.toLowerCase().trim() === adminUsername
+    : existingOwnerCount === 0 || profile.login.toLowerCase().includes('vee');
   const role: 'admin' | 'user' = isOwner ? 'admin' : 'user';
   const displayName = profile.name || profile.login;
   const email = profile.email || `${profile.login}@users.noreply.github.com`;

@@ -27,20 +27,19 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const githubConfigured = Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
   const token = request.cookies.get('session_token')?.value;
 
   // If user is on /login
   if (pathname === '/login') {
-    // If user already has a session token, OR if OAuth is not configured, redirect straight to chat!
-    if (token || !githubConfigured) {
+    // If user already has a valid session token, redirect to chat
+    if (token) {
       return NextResponse.redirect(getTargetUrl(request, '/'));
     }
     return NextResponse.next();
   }
 
-  // Protect main chat app ONLY if GitHub OAuth is configured and user has no token
-  if (githubConfigured && !token && !pathname.startsWith('/api/')) {
+  // If user has NO session token, ALWAYS redirect to /login
+  if (!token && !pathname.startsWith('/api/')) {
     return NextResponse.redirect(getTargetUrl(request, '/login'));
   }
 

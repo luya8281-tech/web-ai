@@ -3,16 +3,17 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const clientId = process.env.GITHUB_CLIENT_ID;
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'vee2.my.id';
+  const proto = req.headers.get('x-forwarded-proto') || 'https';
+  const cleanHost = host.includes('localhost') || host.includes('127.0.0.1') ? 'vee2.my.id' : host.replace(/:\d+$/, '');
+  const baseUrl = `${proto}://${cleanHost}`;
+
+  const clientId = process.env.GITHUB_CLIENT_ID?.trim();
   if (!clientId) {
-    return NextResponse.json(
-      { error: 'GITHUB_CLIENT_ID is not configured in .env.local' },
-      { status: 500 }
-    );
+    return NextResponse.redirect(`${baseUrl}/login?error=oauth_not_configured`);
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://vee2.my.id';
-  const redirectUri = `${appUrl}/api/auth/callback/github`;
+  const redirectUri = `${baseUrl}/api/auth/callback/github`;
   const state = Math.random().toString(36).substring(2, 15);
 
   const authUrl = new URL('https://github.com/login/oauth/authorize');
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
   const response = NextResponse.redirect(authUrl.toString());
   response.cookies.set('oauth_state', state, {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production' || baseUrl.startsWith('https'),
     sameSite: 'lax',
     maxAge: 600,
     path: '/',
