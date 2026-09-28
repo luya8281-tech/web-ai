@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Github,
@@ -14,7 +14,9 @@ import {
   Cpu,
   FolderGit2,
 } from 'lucide-react';
-import { TurnstileWidget } from '@/components/auth/turnstile-widget';
+import { Turnstile } from '@marsidev/react-turnstile';
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAAFHPovaqcaTd365Y';
 
 function LoginContent() {
   const searchParams = useSearchParams();
@@ -27,7 +29,29 @@ function LoginContent() {
   const [loginError, setLoginError] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string>('');
 
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAAFHPovaqcaTd365Y';
+  // Enable native mobile pull-to-refresh by freeing body overflow on login page
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    const prevHeight = document.body.style.height;
+    const prevMinHeight = document.body.style.minHeight;
+    const prevOverscroll = document.body.style.overscrollBehaviorY;
+
+    document.body.style.overflow = 'auto';
+    document.body.style.overflowY = 'auto';
+    document.body.style.height = 'auto';
+    document.body.style.minHeight = '100%';
+    document.body.style.overscrollBehaviorY = 'auto';
+    document.documentElement.style.overscrollBehaviorY = 'auto';
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.overflowY = '';
+      document.body.style.height = prevHeight;
+      document.body.style.minHeight = prevMinHeight;
+      document.body.style.overscrollBehaviorY = prevOverscroll;
+      document.documentElement.style.overscrollBehaviorY = '';
+    };
+  }, []);
 
   const getErrorMessage = (err: string) => {
     switch (err) {
@@ -50,7 +74,7 @@ function LoginContent() {
     e.preventDefault();
     if (!password.trim()) return;
 
-    if (siteKey && !turnstileToken) {
+    if (!turnstileToken) {
       setLoginError('Silakan selesaikan centang "Saya bukan robot" terlebih dahulu.');
       return;
     }
@@ -64,7 +88,7 @@ function LoginContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           secret: password.trim(),
-          turnstileToken: turnstileToken || undefined,
+          turnstileToken,
         }),
       });
 
@@ -84,7 +108,7 @@ function LoginContent() {
 
   const handleGithubLogin = async (e: React.MouseEvent) => {
     e.preventDefault();
-    if (siteKey && !turnstileToken) {
+    if (!turnstileToken) {
       setLoginError('Silakan selesaikan centang "Saya bukan robot" terlebih dahulu.');
       return;
     }
@@ -111,7 +135,7 @@ function LoginContent() {
     }
   };
 
-  const isVerified = !siteKey || Boolean(turnstileToken);
+  const isVerified = Boolean(turnstileToken);
 
   return (
     <div
@@ -119,8 +143,6 @@ function LoginContent() {
       style={{
         userSelect: 'none',
         WebkitUserSelect: 'none',
-        MozUserSelect: 'none',
-        msUserSelect: 'none',
       }}
       onCopy={(e) => e.preventDefault()}
       onCut={(e) => e.preventDefault()}
@@ -156,27 +178,38 @@ function LoginContent() {
         )}
 
         {/* Cloudflare Turnstile "Saya Bukan Robot" Widget */}
-        <div className="space-y-1.5 select-none">
+        <div className="space-y-2 select-none">
           <div className="flex items-center justify-between px-1 select-none">
             <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5 select-none">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
               Verifikasi Keamanan
             </span>
-            {turnstileToken ? (
-              <span className="text-[11px] text-emerald-400 font-medium select-none">✓ Terverifikasi</span>
+            {isVerified ? (
+              <span className="text-[11px] text-emerald-400 font-semibold select-none flex items-center gap-1">
+                ✓ Terverifikasi
+              </span>
             ) : (
-              <span className="text-[11px] text-amber-400/90 font-medium select-none">Wajib centang</span>
+              <span className="text-[11px] text-amber-400/90 font-medium select-none">
+                Wajib dicentang
+              </span>
             )}
           </div>
-          <TurnstileWidget
-            siteKey={siteKey}
-            onVerify={(token) => {
-              setTurnstileToken(token);
-              setLoginError('');
-            }}
-            onExpire={() => setTurnstileToken('')}
-            onError={() => setLoginError('Gagal memuat Cloudflare Turnstile. Pastikan koneksi aman.')}
-          />
+
+          <div className="flex justify-center items-center py-1 w-full min-h-[66px] overflow-hidden rounded-xl">
+            <Turnstile
+              siteKey={SITE_KEY}
+              onSuccess={(token) => {
+                setTurnstileToken(token);
+                setLoginError('');
+              }}
+              onExpire={() => setTurnstileToken('')}
+              onError={() => setLoginError('Verifikasi Cloudflare gagal atau diblokir. Pastikan koneksi stabil.')}
+              options={{
+                theme: 'dark',
+                size: 'normal',
+              }}
+            />
+          </div>
         </div>
 
         {/* Primary Auth Actions */}
@@ -296,16 +329,17 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <main
-      className="min-h-[101svh] min-h-[101vh] w-full flex items-center justify-center p-4 bg-background relative overflow-y-auto overscroll-y-auto touch-pan-y select-none"
+      className="min-h-[101svh] min-h-[101vh] w-full flex items-center justify-center p-4 bg-background relative select-none"
       style={{
         backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px)',
         backgroundSize: '24px 24px',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         overscrollBehaviorY: 'auto',
+        touchAction: 'pan-y',
       }}
       onContextMenu={(e) => {
-        // Prevent context menu on everything except inputs
+        // Prevent context menu on everything except password input
         if ((e.target as HTMLElement)?.tagName !== 'INPUT') {
           e.preventDefault();
         }
