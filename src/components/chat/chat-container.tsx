@@ -9,7 +9,8 @@ import { Composer } from './composer';
 import { TopNav } from './top-nav';
 import { MarkdownRenderer } from '../markdown/markdown-renderer';
 import { LiveThinkingAccordion } from './live-thinking-accordion';
-import { ActionContentRenderer } from './action-content-renderer';
+import { LiveActionCard } from './live-action-card';
+import { cleanMessageContent } from '@/lib/utils/clean-content';
 import { CornerActionHUD } from './corner-action-hud';
 
 export const ChatContainer: React.FC = () => {
@@ -194,13 +195,20 @@ export const ChatContainer: React.FC = () => {
                     <LiveThinkingAccordion reasoning={generatingReasoning} isLive={true} />
                   )}
 
-                  {/* Progressive Markdown & In-place Action Cards */}
-                  {generatingContent || generatingActions.length > 0 ? (
-                    <ActionContentRenderer
-                      content={generatingContent}
-                      actions={generatingActions}
-                      isLive={true}
-                    />
+                  {/* Live Server Action Dropdown Cards - One for each execution step */}
+                  {generatingActions.length > 0 && (
+                    <div className="flex flex-col gap-1.5 my-2.5">
+                      {generatingActions.map((action, idx) => (
+                        <LiveActionCard key={action.id || idx} action={action} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Progressive Clean Markdown Token Render */}
+                  {cleanMessageContent(generatingContent, true) ? (
+                    <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
+                      <MarkdownRenderer content={cleanMessageContent(generatingContent, true)} />
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />

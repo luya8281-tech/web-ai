@@ -16,7 +16,9 @@ import { useChatStore } from '@/stores/chat-store';
 import { useUIStore } from '@/stores/ui-store';
 import { copyToClipboard } from '@/lib/utils/clipboard';
 import { LiveThinkingAccordion } from './live-thinking-accordion';
-import { ActionContentRenderer } from './action-content-renderer';
+import { LiveActionCard } from './live-action-card';
+import { cleanMessageContent, extractActionsFromText } from '@/lib/utils/clean-content';
+import { ActionInfo } from '@/types/chat';
 
 interface MessageItemProps {
   message: Message;
@@ -39,15 +41,7 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({ message, is
 
   const handleCopy = async () => {
     try {
-      const cleanText = message.content
-        .replace(/\[\/?BALASAN_AKHIR\]/gi, '')
-        .replace(/\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):[\s\S]*?(?:\]|(?=\s*\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):)|$)/gi, '')
-        .replace(/\[TOOL RESULTS\]:[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '')
-        .replace(/(?:TOOL OUTPUT|BASH OUTPUT|SKILL CONTENT|PYTHON OUTPUT):?[\s\S]*?(?=\n\n|$)/gi, '')
-        .replace(/\*⚡ Executing tools\.\.\.\*/gi, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-
+      const cleanText = isUser ? message.content : cleanMessageContent(message.content, false);
       const ok = await copyToClipboard(cleanText || message.content);
       if (ok) {
         setCopied(true);
@@ -67,7 +61,9 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({ message, is
     setIsEditing(false);
   };
 
-  const actions = message.metadata?.actions || [];
+  const actions: ActionInfo[] = (message.metadata?.actions && message.metadata.actions.length > 0)
+    ? message.metadata.actions
+    : extractActionsFromText(message.content);
 
   return (
     <div
@@ -134,18 +130,19 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({ message, is
               <LiveThinkingAccordion reasoning={message.reasoningContent} isLive={false} />
             )}
 
-            {/* Message Content: In-place Action Cards & Markdown */}
-            {isUser ? (
-              <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
-                <MarkdownRenderer content={message.content} />
+            {/* Persistent Historical Action Dropdown Cards */}
+            {!isUser && actions.length > 0 && (
+              <div className="flex flex-col gap-1.5 mb-2.5">
+                {actions.map((act, idx) => (
+                  <LiveActionCard key={act.id || idx} action={act} />
+                ))}
               </div>
-            ) : (
-              <ActionContentRenderer
-                content={message.content}
-                actions={actions}
-                isLive={false}
-              />
             )}
+
+            {/* Message Content with Markdown & Syntax Highlighting */}
+            <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
+              <MarkdownRenderer content={isUser ? message.content : cleanMessageContent(message.content, false)} />
+            </div>
           </div>
         )}
 
