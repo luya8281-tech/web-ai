@@ -29,27 +29,29 @@ function LoginContent() {
   const [loginError, setLoginError] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string>('');
 
-  // Enable native mobile pull-to-refresh by freeing body overflow on login page
+  // Enable native mobile pull-to-refresh by freeing body overflow and height on login page
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
     const prevHeight = document.body.style.height;
-    const prevMinHeight = document.body.style.minHeight;
-    const prevOverscroll = document.body.style.overscrollBehaviorY;
 
+    document.body.classList.remove('overflow-hidden', 'h-[100dvh]', 'min-h-[100dvh]', 'flex');
     document.body.style.overflow = 'auto';
     document.body.style.overflowY = 'auto';
     document.body.style.height = 'auto';
     document.body.style.minHeight = '100%';
     document.body.style.overscrollBehaviorY = 'auto';
     document.documentElement.style.overscrollBehaviorY = 'auto';
+    document.documentElement.style.overflowY = 'auto';
 
     return () => {
+      document.body.classList.add('overflow-hidden', 'h-[100dvh]', 'min-h-[100dvh]', 'flex');
       document.body.style.overflow = prevOverflow;
       document.body.style.overflowY = '';
       document.body.style.height = prevHeight;
-      document.body.style.minHeight = prevMinHeight;
-      document.body.style.overscrollBehaviorY = prevOverscroll;
+      document.body.style.minHeight = '';
+      document.body.style.overscrollBehaviorY = '';
       document.documentElement.style.overscrollBehaviorY = '';
+      document.documentElement.style.overflowY = '';
     };
   }, []);
 
