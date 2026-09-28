@@ -73,7 +73,7 @@ export const ChatContainer: React.FC = () => {
     if (distanceFromBottom < 60) {
       container.scrollTop = scrollHeight;
     }
-  }, [generatingContent, generatingReasoning]);
+  }, [generatingContent, generatingReasoning, generatingActions]);
 
   // Handle scroll detection and user scroll intention
   const handleScroll = () => {
@@ -195,26 +195,33 @@ export const ChatContainer: React.FC = () => {
                     <LiveThinkingAccordion reasoning={generatingReasoning} isLive={true} />
                   )}
 
-                  {/* Live Server Action Dropdown Cards - One for each execution step */}
-                  {generatingActions.length > 0 && (
-                    <div className="flex flex-col gap-1.5 my-2.5">
-                      {generatingActions.map((action, idx) => (
-                        <LiveActionCard key={action.id || idx} action={action} />
-                      ))}
+                  {/* Sequential Action Steps (with their leading text) */}
+                  {generatingActions.map((action, idx) => (
+                    <div key={action.id || idx} className="my-2.5 space-y-2">
+                      {action.textBefore && (
+                        <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
+                          <MarkdownRenderer content={action.textBefore} />
+                        </div>
+                      )}
+                      <LiveActionCard action={action} />
                     </div>
-                  )}
+                  ))}
 
-                  {/* Progressive Clean Markdown Token Render */}
+                  {/* Progressive Clean Markdown Token Render for the current round */}
                   {cleanMessageContent(generatingContent, true) ? (
-                    <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
+                    <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words my-2.5">
                       <MarkdownRenderer content={cleanMessageContent(generatingContent, true)} />
                     </div>
-                  ) : (
+                  ) : isExecuting ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-1 animate-pulse">
+                      <span>Mengeksekusi perintah di server...</span>
+                    </div>
+                  ) : isGenerating ? (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
                       <span>Assistant is thinking...</span>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>

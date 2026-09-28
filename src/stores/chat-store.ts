@@ -373,7 +373,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   updated[existingIdx] = { ...updated[existingIdx], ...actionData };
                   return { generatingActions: updated };
                 }
-                return { generatingActions: [...curr.generatingActions, actionData] };
+                // When a new action starts running, clear current round text buffer so the next round's tokens stream below it!
+                fullContent = '';
+                return {
+                  generatingActions: [...curr.generatingActions, actionData],
+                  generatingContent: '',
+                };
               });
             } else if (eventType === 'reasoning') {
               fullReasoning += data.reasoning;

@@ -321,7 +321,7 @@ export async function executeTools(aiReply: string): Promise<ToolResult> {
   }
 
   // 4. [RUN_BASH: command]
-  const bashRegex = /\[RUN_BASH:\s*([\s\S]*?)(?:\]|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
+  const bashRegex = /\[RUN_BASH:\s*([\s\S]*?)(?:\](?![\\:;,)_a-zA-Z0-9\"'])|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
   const bashMatches = Array.from(cleanReply.matchAll(bashRegex)).slice(0, 3);
   for (const m of bashMatches) {
     const cmd = m[1].trim();
@@ -338,7 +338,7 @@ export async function executeTools(aiReply: string): Promise<ToolResult> {
   }
 
   // 5. [RUN_PYTHON: code]
-  const pyRegex = /\[RUN_PYTHON:\s*([\s\S]*?)(?:\]|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
+  const pyRegex = /\[RUN_PYTHON:\s*([\s\S]*?)(?:\](?![\\:;,)_a-zA-Z0-9\"'])|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
   const pyMatches = Array.from(cleanReply.matchAll(pyRegex)).slice(0, 1);
   for (const m of pyMatches) {
     const code = m[1].trim();

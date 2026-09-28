@@ -9,6 +9,7 @@ import { SettingsRepository } from '@/lib/db/repositories/settings-repo';
 import { AIRouter } from '@/lib/ai/router';
 import { ChatMessage, ChatRequest } from '@/lib/ai/provider-interface';
 import { hasToolTags, executeTools } from '@/lib/tools/tool-executor';
+import { cleanMessageContent } from '@/lib/utils/clean-content';
 
 import fs from 'fs';
 import path from 'path';
@@ -347,7 +348,7 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
             toolHopCount++;
             try {
               // Real-time Action Progress event for live collapsible UI card
-              const actionMatch = fullAssistantContent.match(/\[([A-Z_]+):\s*([\s\S]*?)(?:\]|(?=\s*\[[A-Z_]+:)|$)/i);
+              const actionMatch = fullAssistantContent.match(/\[([A-Z_]+):\s*([\s\S]*?)(?:\](?![\\:;,)_a-zA-Z0-9\"'])|(?=\s*\[[A-Z_]+:)|$)/i);
               let actionName = 'Menjalankan aksi server...';
               let actionType = 'TOOL';
               let actionParam = '';
@@ -365,6 +366,7 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
                 else actionName = `Menjalankan aksi server: ${actionType}`;
               }
 
+              const cleanBefore = cleanMessageContent(fullAssistantContent, false);
               const actionId = `act_${Date.now()}_${toolHopCount}`;
               sendEvent('action', {
                 id: actionId,
@@ -372,6 +374,7 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
                 label: actionName,
                 status: 'running',
                 details: actionParam ? actionParam.substring(0, 300) : undefined,
+                textBefore: cleanBefore,
               });
 
               const toolResult = await executeTools(fullAssistantContent);
@@ -382,6 +385,7 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
                 label: actionName,
                 status: 'done',
                 details: toolResult.observation ? toolResult.observation.substring(0, 1500) : (actionParam || 'Selesai dieksekusi'),
+                textBefore: cleanBefore,
               };
               executedActions.push(finishedAction);
 

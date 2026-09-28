@@ -15,6 +15,7 @@ export interface ActionInfo {
   label: string;
   status: 'running' | 'done';
   details?: string;
+  textBefore?: string;
   timestamp?: number;
 }
 

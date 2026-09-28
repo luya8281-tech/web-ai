@@ -130,19 +130,40 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({ message, is
               <LiveThinkingAccordion reasoning={message.reasoningContent} isLive={false} />
             )}
 
-            {/* Persistent Historical Action Dropdown Cards */}
-            {!isUser && actions.length > 0 && (
-              <div className="flex flex-col gap-1.5 mb-2.5">
+            {/* Sequential Steps: Text -> Action Card -> Text -> Action Card */}
+            {!isUser && actions.length > 0 && actions.some((a) => a.textBefore) ? (
+              <div className="space-y-2.5">
                 {actions.map((act, idx) => (
-                  <LiveActionCard key={act.id || idx} action={act} />
+                  <div key={act.id || idx} className="space-y-2">
+                    {act.textBefore && (
+                      <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
+                        <MarkdownRenderer content={act.textBefore} />
+                      </div>
+                    )}
+                    <LiveActionCard action={act} />
+                  </div>
                 ))}
+                {cleanMessageContent(message.content, false) && (
+                  <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words pt-1">
+                    <MarkdownRenderer content={cleanMessageContent(message.content, false)} />
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Fallback for legacy messages or single-block messages */
+              <div className="space-y-2.5">
+                {!isUser && actions.length > 0 && (
+                  <div className="flex flex-col gap-1.5 mb-2.5">
+                    {actions.map((act, idx) => (
+                      <LiveActionCard key={act.id || idx} action={act} />
+                    ))}
+                  </div>
+                )}
+                <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
+                  <MarkdownRenderer content={isUser ? message.content : cleanMessageContent(message.content, false)} />
+                </div>
               </div>
             )}
-
-            {/* Message Content with Markdown & Syntax Highlighting */}
-            <div className="text-foreground text-[15px] sm:text-[15.5px] leading-relaxed text-left break-words">
-              <MarkdownRenderer content={isUser ? message.content : cleanMessageContent(message.content, false)} />
-            </div>
           </div>
         )}
 
