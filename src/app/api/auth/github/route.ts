@@ -13,6 +13,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${baseUrl}/login?error=oauth_not_configured`);
   }
 
+  if (process.env.TURNSTILE_SECRET_KEY) {
+    const turnstileOk = req.cookies.get('cf_turnstile_ok')?.value === '1';
+    const turnstileToken = req.nextUrl.searchParams.get('turnstile_token');
+    if (!turnstileOk) {
+      if (turnstileToken) {
+        const { verifyTurnstileToken } = await import('@/lib/turnstile');
+        const clientIp = req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || null;
+        const verified = await verifyTurnstileToken(turnstileToken, clientIp);
+        if (!verified.success) {
+          return NextResponse.redirect(`${baseUrl}/login?error=turnstile_failed`);
+        }
+      } else {
+        return NextResponse.redirect(`${baseUrl}/login?error=turnstile_required`);
+      }
+    }
+  }
+
   const redirectUri = `${baseUrl}/api/auth/callback/github`;
   const state = Math.random().toString(36).substring(2, 15);
 

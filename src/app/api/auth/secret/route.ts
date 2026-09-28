@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSession } from '@/lib/auth';
+import { verifyTurnstileToken } from '@/lib/turnstile';
 import db from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +8,13 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { secret } = body;
+    const { secret, turnstileToken } = body;
+
+    const clientIp = req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || null;
+    const turnstileResult = await verifyTurnstileToken(turnstileToken, clientIp);
+    if (!turnstileResult.success) {
+      return NextResponse.json({ error: turnstileResult.error }, { status: 400 });
+    }
 
     const serverSecret = process.env.AUTH_SECRET || 'chat_vps_secret_key_889214710';
 
