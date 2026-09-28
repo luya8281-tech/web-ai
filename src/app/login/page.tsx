@@ -27,7 +27,7 @@ function LoginContent() {
   const [loginError, setLoginError] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string>('');
 
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '';
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '0x4AAAAAAFHPovaqcaTd365Y';
 
   const getErrorMessage = (err: string) => {
     switch (err) {
@@ -114,23 +114,34 @@ function LoginContent() {
   const isVerified = !siteKey || Boolean(turnstileToken);
 
   return (
-    <div className="w-full max-w-[420px] mx-auto space-y-6">
+    <div
+      className="w-full max-w-[420px] mx-auto space-y-6 select-none"
+      style={{
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        MozUserSelect: 'none',
+        msUserSelect: 'none',
+      }}
+      onCopy={(e) => e.preventDefault()}
+      onCut={(e) => e.preventDefault()}
+    >
       {/* Main Login Card */}
-      <div className="p-7 sm:p-8 rounded-2xl border border-border/80 bg-card/95 shadow-xl backdrop-blur-md space-y-6">
+      <div className="p-7 sm:p-8 rounded-2xl border border-border/80 bg-card/95 shadow-xl backdrop-blur-md space-y-6 select-none">
         {/* Brand Header */}
-        <div className="text-center space-y-3">
+        <div className="text-center space-y-3 pointer-events-none select-none">
           <div className="inline-block p-1.5 rounded-2xl bg-muted/60 border border-border shadow-xs">
             <img
               src="/icon.svg"
               alt="Vee Logo"
-              className="w-14 h-14 rounded-xl object-contain"
+              className="w-14 h-14 rounded-xl object-contain pointer-events-none"
+              draggable={false}
             />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground select-none">
               Vee Workspace
             </h1>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-1 select-none">
               Masuk untuk melanjutkan percakapan Anda
             </p>
           </div>
@@ -138,61 +149,59 @@ function LoginContent() {
 
         {/* Error Alert */}
         {(error || loginError) && (
-          <div className="p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-400 text-xs flex items-center gap-2.5">
+          <div className="p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-400 text-xs flex items-center gap-2.5 select-none">
             <AlertCircle className="w-4 h-4 shrink-0" />
-            <span className="leading-snug">{loginError || (error ? getErrorMessage(error) : '')}</span>
+            <span className="leading-snug select-none">{loginError || (error ? getErrorMessage(error) : '')}</span>
           </div>
         )}
 
         {/* Cloudflare Turnstile "Saya Bukan Robot" Widget */}
-        {siteKey && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                Verifikasi Keamanan
-              </span>
-              {turnstileToken ? (
-                <span className="text-[11px] text-emerald-400 font-medium">✓ Terverifikasi</span>
-              ) : (
-                <span className="text-[11px] text-amber-400/90 font-medium">Wajib centang</span>
-              )}
-            </div>
-            <TurnstileWidget
-              siteKey={siteKey}
-              onVerify={(token) => {
-                setTurnstileToken(token);
-                setLoginError('');
-              }}
-              onExpire={() => setTurnstileToken('')}
-              onError={() => setLoginError('Gagal memuat Cloudflare Turnstile. Pastikan koneksi aman.')}
-            />
+        <div className="space-y-1.5 select-none">
+          <div className="flex items-center justify-between px-1 select-none">
+            <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5 select-none">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              Verifikasi Keamanan
+            </span>
+            {turnstileToken ? (
+              <span className="text-[11px] text-emerald-400 font-medium select-none">✓ Terverifikasi</span>
+            ) : (
+              <span className="text-[11px] text-amber-400/90 font-medium select-none">Wajib centang</span>
+            )}
           </div>
-        )}
+          <TurnstileWidget
+            siteKey={siteKey}
+            onVerify={(token) => {
+              setTurnstileToken(token);
+              setLoginError('');
+            }}
+            onExpire={() => setTurnstileToken('')}
+            onError={() => setLoginError('Gagal memuat Cloudflare Turnstile. Pastikan koneksi aman.')}
+          />
+        </div>
 
         {/* Primary Auth Actions */}
-        <div className="space-y-4">
+        <div className="space-y-4 select-none">
           <button
             type="button"
             onClick={handleGithubLogin}
             disabled={loading || !isVerified}
-            className="group w-full flex items-center justify-between py-3 px-4 rounded-xl bg-foreground text-background font-semibold text-xs sm:text-sm hover:opacity-90 transition-all shadow-sm active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="group w-full flex items-center justify-between py-3 px-4 rounded-xl bg-foreground text-background font-semibold text-xs sm:text-sm hover:opacity-90 transition-all shadow-sm active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed select-none"
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 select-none">
               {loading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-background" />
               ) : (
                 <Github className="w-4 h-4 fill-current" />
               )}
-              <span>Lanjutkan dengan GitHub</span>
+              <span className="select-none">Lanjutkan dengan GitHub</span>
             </div>
             <ArrowRight className="w-4 h-4 opacity-60 group-hover:translate-x-0.5 transition-transform" />
           </button>
 
           {/* Divider */}
-          <div className="relative flex items-center justify-center">
+          <div className="relative flex items-center justify-center select-none">
             <div className="w-full border-t border-border" />
-            <span className="absolute px-3 bg-card text-[11px] text-muted-foreground uppercase tracking-wider">
+            <span className="absolute px-3 bg-card text-[11px] text-muted-foreground uppercase tracking-wider select-none">
               atau
             </span>
           </div>
@@ -203,10 +212,10 @@ function LoginContent() {
               type="button"
               onClick={() => setUsePassword(true)}
               disabled={!isVerified}
-              className="w-full py-2.5 px-3 rounded-xl border border-border/80 bg-muted/30 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full py-2.5 px-3 rounded-xl border border-border/80 bg-muted/30 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed select-none"
             >
               <Lock className="w-3.5 h-3.5" />
-              <span>Gunakan password rahasia</span>
+              <span className="select-none">Gunakan password rahasia</span>
             </button>
           ) : (
             <form onSubmit={handlePasswordLogin} className="space-y-3 pt-1">
@@ -218,7 +227,7 @@ function LoginContent() {
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={!isVerified || loading}
                   autoFocus
-                  className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-border bg-background text-foreground text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground disabled:opacity-50"
+                  className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-border bg-background text-foreground text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground disabled:opacity-50 select-text"
                 />
                 <button
                   type="button"
@@ -229,11 +238,11 @@ function LoginContent() {
                 </button>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 select-none">
                 <button
                   type="submit"
                   disabled={loading || !password.trim() || !isVerified}
-                  className="flex-1 py-2.5 rounded-xl bg-foreground text-background text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 rounded-xl bg-foreground text-background text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 select-none"
                 >
                   {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Masuk'}
                 </button>
@@ -243,7 +252,7 @@ function LoginContent() {
                     setUsePassword(false);
                     setLoginError('');
                   }}
-                  className="px-4 py-2.5 rounded-xl border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                  className="px-4 py-2.5 rounded-xl border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors select-none"
                 >
                   Batal
                 </button>
@@ -253,32 +262,32 @@ function LoginContent() {
         </div>
 
         {/* Feature Badges */}
-        <div className="pt-2 border-t border-border/60 grid grid-cols-3 gap-2 text-center">
-          <div className="p-2 rounded-xl bg-muted/30 border border-border/40 flex flex-col items-center gap-1">
+        <div className="pt-2 border-t border-border/60 grid grid-cols-3 gap-2 text-center select-none">
+          <div className="p-2 rounded-xl bg-muted/30 border border-border/40 flex flex-col items-center gap-1 select-none">
             <Cpu className="w-3.5 h-3.5 text-primary" />
-            <span className="text-[10px] font-medium text-foreground/80">Multi-Model</span>
+            <span className="text-[10px] font-medium text-foreground/80 select-none">Multi-Model</span>
           </div>
-          <div className="p-2 rounded-xl bg-muted/30 border border-border/40 flex flex-col items-center gap-1">
+          <div className="p-2 rounded-xl bg-muted/30 border border-border/40 flex flex-col items-center gap-1 select-none">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[10px] font-medium text-foreground/80">Sesi Privat</span>
+            <span className="text-[10px] font-medium text-foreground/80 select-none">Sesi Privat</span>
           </div>
-          <div className="p-2 rounded-xl bg-muted/30 border border-border/40 flex flex-col items-center gap-1">
+          <div className="p-2 rounded-xl bg-muted/30 border border-border/40 flex flex-col items-center gap-1 select-none">
             <FolderGit2 className="w-3.5 h-3.5 text-sky-400" />
-            <span className="text-[10px] font-medium text-foreground/80">Workspace</span>
+            <span className="text-[10px] font-medium text-foreground/80 select-none">Workspace</span>
           </div>
         </div>
       </div>
 
       {/* System Status Footer */}
-      <div className="flex items-center justify-between px-2 text-[11px] text-muted-foreground">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between px-2 text-[11px] text-muted-foreground select-none">
+        <div className="flex items-center gap-1.5 select-none">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
-          <span>Sistem Aktif</span>
+          <span className="select-none">Sistem Aktif</span>
         </div>
-        <span>vee2.my.id</span>
+        <span className="select-none">vee2.my.id</span>
       </div>
     </div>
   );
@@ -287,13 +296,22 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <main
-      className="min-h-screen w-full flex items-center justify-center p-4 bg-background relative"
+      className="min-h-[101svh] min-h-[101vh] w-full flex items-center justify-center p-4 bg-background relative overflow-y-auto overscroll-y-auto touch-pan-y select-none"
       style={{
         backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px)',
         backgroundSize: '24px 24px',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        overscrollBehaviorY: 'auto',
+      }}
+      onContextMenu={(e) => {
+        // Prevent context menu on everything except inputs
+        if ((e.target as HTMLElement)?.tagName !== 'INPUT') {
+          e.preventDefault();
+        }
       }}
     >
-      <Suspense fallback={<div className="text-muted-foreground text-xs">Memuat...</div>}>
+      <Suspense fallback={<div className="text-muted-foreground text-xs select-none">Memuat...</div>}>
         <LoginContent />
       </Suspense>
     </main>
