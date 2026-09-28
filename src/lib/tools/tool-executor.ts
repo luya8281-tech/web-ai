@@ -19,54 +19,27 @@ function truncateOutput(text: string, maxLen: number): string {
   return text.substring(0, maxLen) + `\n...[truncated, ${text.length - maxLen} chars omitted]`;
 }
 
-async function searchWeb(query: string): Promise<string> {
-  try {
-    console.log(`[ToolExecutor] Web search: ${query}`);
-    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const ddgRes = await fetch(ddgUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-      },
-    });
-    if (ddgRes.ok) {
-      const html = await ddgRes.text();
-      const matches = Array.from(html.matchAll(/class="result__url"[^>]*href="([^"]+)"[\s\S]*?<h2[^>]*>([\s\S]*?)<\/h2>[\s\S]*?class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g));
-      if (matches.length > 0) {
-        const results = matches.slice(0, 5).map((m, idx) => {
-          const title = m[2].replace(/<[^>]+>/g, '').trim();
-          const snippet = m[3].replace(/<[^>]+>/g, '').trim();
-          return `${idx + 1}. [${title}]\n${snippet}`;
-        }).join('\n\n');
-        return results.substring(0, 3000);
+function searchWeb(query: string): Promise<string> {
+  return new Promise((resolve) => {
+    const scriptPath = path.join(process.cwd(), 'scripts', 'web_search.js');
+    console.log(`[ToolExecutor] Web search via Playwright runner: ${query}`);
+
+    execFile('node', [scriptPath, query], {
+      timeout: 25000,
+      maxBuffer: 10 * 1024 * 1024,
+    }, (err, stdout, stderr) => {
+      if (!err && stdout) {
+        try {
+          const json = JSON.parse(stdout.trim());
+          if (json.text) {
+            return resolve(json.text);
+          }
+        } catch (e) {}
       }
-    }
-  } catch (e: any) {
-    console.warn('[ToolExecutor] DuckDuckGo failed:', e.message);
-  }
-
-  // Fallback: Bing via simple fetch
-  try {
-    const bingUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
-    const bingRes = await fetch(bingUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
+      console.warn(`[ToolExecutor] web_search runner failed for "${query}":`, err?.message || stderr);
+      resolve(`Tidak ada hasil relevan dari internet untuk "${query}".`);
     });
-    if (bingRes.ok) {
-      const html = await bingRes.text();
-      // Extract text snippets from Bing
-      const snippets = Array.from(html.matchAll(/<p class="b_algoSlug"[^>]*>([^<]+)<\/p>/g))
-        .slice(0, 5)
-        .map((m, i) => `${i + 1}. ${m[1].replace(/<[^>]+>/g, '').trim()}`)
-        .join('\n\n');
-      if (snippets) return snippets.substring(0, 3000);
-    }
-  } catch (e: any) {
-    console.warn('[ToolExecutor] Bing fallback failed:', e.message);
-  }
-
-  return 'No relevant results found from internet search.';
+  });
 }
 
 function runBashCommand(command: string): Promise<{ success: boolean; output: string; error?: string }> {

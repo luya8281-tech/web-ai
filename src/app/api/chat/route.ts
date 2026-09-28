@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
     if (detectedUrls.length === 0 && convId) {
       try {
         const recentHistory = MessageRepository.listMessages(convId).slice(-6).reverse();
-        const wantsToOpen = /(?:buka|baca|link|tautan|web|url|cek|isi|artikel|berita|dong|lagi|tadi|coba)/i.test(userContent);
+        const wantsToOpen = /(?:(?:buka|baca|kunjungi|lihat)\s+(?:kembali|lagi|link|tautan|web|url|artikel|berita|halaman)|(?:link|tautan|web|url|artikel|berita)\s+(?:tadi|kemarin|sebelumnya|yang tadi)|coba buka (?:lagi|tadi))/i.test(userContent);
         if (wantsToOpen) {
           for (const pastMsg of recentHistory) {
             const found = Array.from(pastMsg.content.matchAll(urlRegex)).map((m) => m[0]);
@@ -202,9 +202,29 @@ ${skillsText}
 10. \`[BACA_OCR: path]\` -> Scan teks dari gambar menggunakan OCR.
 11. \`[BUAT_PDF: html | file]\` -> Render dokumen PDF berstandar A4.
 
-Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di balasan Anda, dan sistem otomatis akan menjalankannya secara ReAct multi-hop loop. JANGAN menjelaskan bahwa Anda akan menggunakan alat, langsung panggil tag-nya!`;
+Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di balasan Anda, dan sistem otomatis akan menjalankannya secara ReAct multi-hop loop. JANGAN menjelaskan bahwa Anda akan menggunakan alat, langsung panggil tag-nya!
 
-    effectiveSystemPrompt = (effectiveSystemPrompt || 'Anda adalah AI Asisten canggih yang siap membantu pengguna.') + temporalContext + toolInstructions + urlTriggerPrompt;
+## 4. PROTOKOL PENELUSURAN MANDIRI & VERIFIKASI FAKTA (ANTI-TUDUHAN HOAKS PREMATUR)
+- **Dilarang Keras Menuduh Hoaks / Rumor Secara Prematur:** Ketiadaan hasil pencarian dari [CARI_WEB] BUKAN bukti bahwa suatu peristiwa tidak terjadi! Jangan pernah menyimpulkan klaim pengguna sebagai "HOAKS", "RUMOR BELAKA", atau "TIDAK ADA" hanya karena pencarian pertama tidak membuahkan hasil.
+- **Pencarian Multi-Sudut Otonom:** Jika pencarian pertama tidak menghasilkan data atau pengguna menegaskan suatu peristiwa (misal: "ada hari ini dia konser", "di JIS", "barusan terjadi"):
+  1. JANGAN MEMBANTAH PENGGUNA. Gunakan setiap detail dari pengguna sebagai kata kunci utama (anchor signal).
+  2. Cari dengan variasi bahasa Indonesia dan lokasi spesifik (contoh: "[CARI_WEB: The Weeknd Jakarta International Stadium 2026]", "[CARI_WEB: konser The Weeknd JIS September 2026]").
+  3. Telusuri portal berita terkemuka lokal (Kompas, Detik, Kumparan, Tirto, Tribunnews) atau situs tiket resmi (Live Nation Asia, Tiket.com).
+  4. Jika tetap belum menemukan data setelah beberapa sudut pencarian, jawablah dengan objektif dan rendah hati: "Saya belum menemukan rilis resmi mengenai jadwal tersebut di penelusuran web saat ini. Apakah ada detail spesifik lain yang bisa saya periksa?". DILARANG menyebutnya hoaks.
+- **Verifikasi Tautan Media Sosial:** Acara konser atau berita viral sering kali pertama kali beredar di Instagram, Twitter/X, atau TikTok. Jika pengguna menyertakan link, WAJIB LANGSUNG buka dan baca teksnya menggunakan [BUKA_WEB: url].
+- **Zero-Excuses:** Jangan membuat alasan defensif mengenai "keterbatasan model" atau "anti-bot". Kerahkan alat [CARI_WEB] dan [BUKA_WEB] secara mandiri dan gigih.`;
+
+    let externalSystemMd = '';
+    try {
+      const sysMdPath = '/root/wa-bot/SYSTEM.md';
+      if (fs.existsSync(sysMdPath)) {
+        externalSystemMd = '\n\n' + fs.readFileSync(sysMdPath, 'utf8');
+      }
+    } catch (e) {}
+
+    const webAiPromptNotice = `\n\n[CATATAN FORMAT WEB AI]: Anda beroperasi melalui Web AI Interface. Tampilkan balasan Anda secara langsung sebagai Markdown yang rapi dan bersih. JANGAN PERNAH membungkus balasan dengan tag [BALASAN_AKHIR] atau [/BALASAN_AKHIR] karena antarmuka web langsung merender teks Anda secara visual.`;
+
+    effectiveSystemPrompt = (effectiveSystemPrompt || 'Anda adalah AI Asisten canggih yang siap membantu pengguna.') + temporalContext + toolInstructions + externalSystemMd + webAiPromptNotice + urlTriggerPrompt;
 
     // Save user message to database if not temporary
     const userMsgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -438,11 +458,15 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
           // Save partial or complete assistant response into database if not temporary
           if (!temporary && (fullAssistantContent.trim().length > 0 || fullReasoningContent.trim().length > 0)) {
             try {
+              const cleanDbContent = accumulatedDbContent
+                .replace(/\[\/?BALASAN_AKHIR\]/gi, '')
+                .trim();
+
               MessageRepository.createMessage({
                 id: assistantMsgId,
                 conversationId: convId!,
                 role: 'assistant',
-                content: accumulatedDbContent,
+                content: cleanDbContent,
                 reasoningContent: fullReasoningContent || null,
                 model: modelId,
                 provider: providerId,

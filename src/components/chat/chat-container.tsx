@@ -9,7 +9,7 @@ import { Composer } from './composer';
 import { TopNav } from './top-nav';
 import { MarkdownRenderer } from '../markdown/markdown-renderer';
 import { LiveThinkingAccordion } from './live-thinking-accordion';
-import { LiveActionCard } from './live-action-card';
+import { ActionContentRenderer } from './action-content-renderer';
 import { CornerActionHUD } from './corner-action-hud';
 
 export const ChatContainer: React.FC = () => {
@@ -194,22 +194,12 @@ export const ChatContainer: React.FC = () => {
                     <LiveThinkingAccordion reasoning={generatingReasoning} isLive={true} />
                   )}
 
-                  {/* Live Server Action Dropdown Cards - One for each execution step */}
-                  {generatingActions.length > 0 && (
-                    <div className="flex flex-col gap-1.5 my-2.5">
-                      {generatingActions.map((action, idx) => (
-                        <LiveActionCard key={action.id || idx} action={action} />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Progressive Markdown Token Render */}
-                  {generatingContent ? (
-                    <MarkdownRenderer 
-                      content={generatingContent
-                        .replace(/\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|RUN_BASH|BACA_SKILL|RUN_PYTHON|INSTALL_SKILL|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):[\s\S]*?\]/gi, '')
-                        .replace(/\*⚡ Executing tools\.\.\.\*/gi, '')
-                        .replace(/\n{3,}/g, '\n\n')} 
+                  {/* Progressive Markdown & In-place Action Cards */}
+                  {generatingContent || generatingActions.length > 0 ? (
+                    <ActionContentRenderer
+                      content={generatingContent}
+                      actions={generatingActions}
+                      isLive={true}
                     />
                   ) : (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">

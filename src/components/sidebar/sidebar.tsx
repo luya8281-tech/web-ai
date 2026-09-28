@@ -14,10 +14,12 @@ import {
   Folder,
   Sliders,
   Sparkles,
+  LogOut,
 } from 'lucide-react';
 import { useChatStore } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useUIStore } from '@/stores/ui-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { ConversationItem } from './conversation-item';
 import { Conversation } from '@/types/chat';
 
@@ -35,6 +37,11 @@ export const Sidebar: React.FC = () => {
 
   const { settings, updateSettings } = useSettingsStore();
   const { sidebarOpen, setSidebarOpen, setSettingsOpen } = useUIStore();
+  const { user, logout, checkAuth } = useAuthStore();
+
+  React.useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const [showArchived, setShowArchived] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -129,26 +136,39 @@ export const Sidebar: React.FC = () => {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:-translate-x-full md:hidden'
         }`}
       >
-        {/* Top Header / New Chat */}
-        <div className="p-3 border-b border-sidebar-border space-y-2">
-          <div className="flex items-center justify-between">
+        {/* Top Header / Brand & New Chat */}
+        <div className="p-3 border-b border-sidebar-border space-y-2.5">
+          {/* Brand Logo & Domain */}
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2.5">
+              <img src="/icon.svg" alt="Vee² AI" className="w-7 h-7 rounded-lg shadow-sm border border-primary/20 shrink-0" />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-sidebar-foreground tracking-tight">Vee² AI</span>
+                  <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-primary/15 text-primary border border-primary/25">PRO</span>
+                </div>
+                <p className="text-[10px] text-sidebar-foreground/50 font-mono">vee2.my.id</p>
+              </div>
+            </div>
+            {/* Mobile close button */}
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden p-1.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex items-center">
             <button
               onClick={() => {
                 newChat();
                 if (window.innerWidth < 768) setSidebarOpen(false);
               }}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-primary text-primary-foreground font-medium text-xs sm:text-sm hover:bg-primary-hover shadow-xs transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-primary text-primary-foreground font-medium text-xs sm:text-sm hover:bg-primary-hover shadow-xs transition-colors"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>New Chat</span>
-            </button>
-
-            {/* Mobile close button */}
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="md:hidden ml-2 p-2 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-            >
-              <X className="w-5 h-5" />
             </button>
           </div>
 
@@ -332,15 +352,23 @@ export const Sidebar: React.FC = () => {
           {/* User Profile Bar */}
           <div className="flex items-center justify-between pt-1">
             <div className="flex items-center gap-2 min-w-0 pr-1">
-              <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                V
-              </div>
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.name || 'User'}
+                  className="w-7 h-7 rounded-full object-cover shrink-0 border border-primary/20"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                  {(user?.name || 'V').charAt(0).toUpperCase()}
+                </div>
+              )}
               <div className="flex flex-col text-left truncate">
                 <span className="text-xs font-semibold text-sidebar-foreground truncate">
-                  Vee
+                  {user?.name || 'Vee'}
                 </span>
                 <span className="text-[10px] text-sidebar-foreground/50">
-                  Single-User · Admin
+                  {user?.role === 'admin' ? 'Pemilik · Admin' : 'Sesi Pribadi'}
                 </span>
               </div>
             </div>
@@ -360,6 +388,14 @@ export const Sidebar: React.FC = () => {
                 title="Settings"
               >
                 <Settings className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => logout()}
+                className="p-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+                title="Keluar (Logout)"
+              >
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
           </div>

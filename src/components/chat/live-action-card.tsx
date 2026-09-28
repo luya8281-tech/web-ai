@@ -50,15 +50,58 @@ export const LiveActionCard: React.FC<{ action: ActionInfo }> = ({ action }) => 
           : 'border-border/70 bg-card/50 hover:border-border hover:bg-card/80'
       }`}
     >
-      {/* Subtle Hairline Corner Accents (Active execution) */}
-      {isRunning && (
-        <>
-          <div className="absolute top-1 left-1 w-2 h-2 border-t border-l border-primary/40 rounded-tl-[2px] pointer-events-none" />
-          <div className="absolute top-1 right-1 w-2 h-2 border-t border-r border-primary/40 rounded-tr-[2px] pointer-events-none" />
-          <div className="absolute bottom-1 left-1 w-2 h-2 border-b border-l border-primary/40 rounded-bl-[2px] pointer-events-none" />
-          <div className="absolute bottom-1 right-1 w-2 h-2 border-b border-r border-primary/40 rounded-br-[2px] pointer-events-none" />
-        </>
-      )}
+      {/* High-Tech Animated Corner Accents on ALL 4 CORNERS */}
+      <div className="absolute top-0 left-0 w-3.5 h-3.5 pointer-events-none z-10">
+        <div
+          className={`w-full h-full border-t-2 border-l-2 rounded-tl-md transition-all duration-300 ${
+            isRunning
+              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
+              : 'border-emerald-500/50'
+          }`}
+        />
+        {isRunning && (
+          <span className="absolute top-0 left-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
+        )}
+      </div>
+
+      <div className="absolute top-0 right-0 w-3.5 h-3.5 pointer-events-none z-10">
+        <div
+          className={`w-full h-full border-t-2 border-r-2 rounded-tr-md transition-all duration-300 ${
+            isRunning
+              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
+              : 'border-emerald-500/50'
+          }`}
+        />
+        {isRunning && (
+          <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
+        )}
+      </div>
+
+      <div className="absolute bottom-0 left-0 w-3.5 h-3.5 pointer-events-none z-10">
+        <div
+          className={`w-full h-full border-b-2 border-l-2 rounded-bl-md transition-all duration-300 ${
+            isRunning
+              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
+              : 'border-emerald-500/50'
+          }`}
+        />
+        {isRunning && (
+          <span className="absolute bottom-0 left-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
+        )}
+      </div>
+
+      <div className="absolute bottom-0 right-0 w-3.5 h-3.5 pointer-events-none z-10">
+        <div
+          className={`w-full h-full border-b-2 border-r-2 rounded-br-md transition-all duration-300 ${
+            isRunning
+              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
+              : 'border-emerald-500/50'
+          }`}
+        />
+        {isRunning && (
+          <span className="absolute bottom-0 right-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
+        )}
+      </div>
 
       {/* Action Header Button / Dropdown Trigger */}
       <button

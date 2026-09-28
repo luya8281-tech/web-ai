@@ -91,10 +91,13 @@ export const TopNav: React.FC = () => {
         )}
       </div>
 
-      {/* Center: Conversation Title or Claude Branding */}
-      <div className="text-center truncate px-2 max-w-[180px] sm:max-w-xs md:max-w-md">
+      {/* Center: Conversation Title or Vee² Branding */}
+      <div className="flex items-center justify-center gap-1.5 truncate px-2 max-w-[180px] sm:max-w-xs md:max-w-md">
+        {!activeConversation?.title && (
+          <img src="/icon.svg" alt="Vee² AI" className="w-4 h-4 rounded-xs shrink-0" />
+        )}
         <span className="font-medium text-xs sm:text-sm text-foreground/85 truncate block">
-          {activeConversation?.title || 'Claude'}
+          {activeConversation?.title || 'Vee² AI'}
         </span>
       </div>
 

@@ -37,9 +37,9 @@ export const EmptyState: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-2xl mx-auto">
-      {/* Sparkle icon */}
-      <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4 shadow-sm">
-        <Sparkles className="w-6 h-6" />
+      {/* Brand Logo Icon */}
+      <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-cyan-500/20 via-primary/20 to-purple-500/20 p-3 border border-primary/25 shadow-lg mb-4 flex items-center justify-center">
+        <img src="/icon.svg" alt="Vee² AI" className="w-full h-full object-contain drop-shadow" />
       </div>
 
       {/* Main Title */}

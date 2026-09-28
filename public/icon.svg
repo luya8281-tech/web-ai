@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#030712" />
+    </linearGradient>
+    <linearGradient id="vGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+    <linearGradient id="vAccent" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Base with subtle border -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <rect width="504" height="504" x="4" y="4" rx="124" fill="none" stroke="url(#vGrad)" stroke-width="4" stroke-opacity="0.35" />
+
+  <!-- Ambient Glow Behind Logo -->
+  <circle cx="256" cy="256" r="160" fill="url(#glowGrad)" filter="url(#glow)" />
+
+  <!-- Geometric V² Core Icon -->
+  <g filter="url(#glow)">
+    <!-- Left Wing of V -->
+    <path d="M138 152 L220 152 L256 270 L292 152 L374 152 L286 364 C276 388 236 388 226 364 Z" fill="url(#vGrad)" />
+    <!-- Inner Accent Wing (Depth & Modern Layer) -->
+    <path d="M176 152 L220 152 L256 250 L236 295 L190 200 Z" fill="url(#vAccent)" opacity="0.9" />
+    <!-- Glowing Superscript '2' Badge / Orbit -->
+    <g transform="translate(350, 130)">
+      <circle cx="36" cy="36" r="34" fill="#0f172a" stroke="url(#vGrad)" stroke-width="4" />
+      <!-- Superscript 2 path -->
+      <path d="M24 28 C24 22 28 18 36 18 C44 18 48 22 48 27 C48 33 43 38 37 43 L24 54 L49 54 L49 60 L20 60 L20 54 L36 40 C41 35 43 32 43 28 C43 24 40 22 36 22 C32 22 29 24 29 28 Z" fill="#38bdf8" />
+    </g>
+  </g>
+
+  <!-- Orbiting sparkle accents -->
+  <circle cx="130" cy="290" r="6" fill="#38bdf8" opacity="0.8" />
+  <circle cx="380" cy="310" r="4" fill="#a855f7" opacity="0.7" />
+  <circle cx="256" cy="420" r="5" fill="#6366f1" opacity="0.7" />
+</svg>

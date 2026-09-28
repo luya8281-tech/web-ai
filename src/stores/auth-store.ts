@@ -16,41 +16,24 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user: {
-    id: 'user_vee',
-    name: 'Vee',
-    email: 'vee@vps.local',
-    role: 'admin',
-    avatar: null,
-  },
-  isLoading: false,
+  user: null,
+  isLoading: true,
 
   checkAuth: async () => {
     try {
       const res = await fetch('/api/auth/me');
       if (res.ok) {
         const data = await res.json();
-        if (data?.user) {
-          set({ user: data.user, isLoading: false });
-          return;
-        }
+        set({ user: data?.user || null, isLoading: false });
+        return;
       }
     } catch (e) {
       console.error('[AuthStore] Failed to check auth', e);
     }
-    set({
-      user: {
-        id: 'user_vee',
-        name: 'Vee',
-        email: 'vee@vps.local',
-        role: 'admin',
-        avatar: null,
-      },
-      isLoading: false,
-    });
+    set({ user: null, isLoading: false });
   },
 
   logout: async () => {
-    // Single-user mode: no session logout needed
+    window.location.href = '/api/auth/logout';
   },
 }));

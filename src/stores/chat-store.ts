@@ -366,7 +366,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               const actionData = data as ActionInfo;
               set((curr) => {
                 const existingIdx = curr.generatingActions.findIndex(
-                  (a) => (actionData.id && a.id === actionData.id) || a.label === actionData.label
+                  (a) => (actionData.id && a.id === actionData.id) || (a.label === actionData.label && a.status === 'running' && actionData.status === 'done')
                 );
                 if (existingIdx !== -1) {
                   const updated = [...curr.generatingActions];

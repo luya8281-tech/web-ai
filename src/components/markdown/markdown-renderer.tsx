@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './code-block';
@@ -46,6 +46,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
   content,
   showLineNumbers = true,
 }) => {
+  const sanitizedContent = useMemo(() => {
+    if (!content) return '';
+    return content.replace(/\[\/?BALASAN_AKHIR\]/gi, '');
+  }, [content]);
+
   return (
     <div className="prose prose-neutral dark:prose-invert max-w-none break-words text-[15.5px] leading-[1.65] text-foreground font-sans">
       <ReactMarkdown
@@ -148,7 +153,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
           },
         }}
       >
-        {content}
+        {sanitizedContent}
       </ReactMarkdown>
     </div>
   );

@@ -8,6 +8,6 @@ export async function GET(req: NextRequest) {
     const user = getCurrentUser(req);
     return NextResponse.json({ user });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ user: null, error: err.message }, { status: 200 });
   }
 }
