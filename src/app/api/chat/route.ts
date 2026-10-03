@@ -9,7 +9,7 @@ import { SettingsRepository } from '@/lib/db/repositories/settings-repo';
 import { AIRouter } from '@/lib/ai/router';
 import { ChatMessage, ChatRequest } from '@/lib/ai/provider-interface';
 import { hasToolTags, executeTools } from '@/lib/tools/tool-executor';
-import { cleanMessageContent } from '@/lib/utils/clean-content';
+import { cleanMessageContent, parseToolTags } from '@/lib/utils/clean-content';
 
 import fs from 'fs';
 import path from 'path';
@@ -141,10 +141,7 @@ export async function POST(req: NextRequest) {
 
     const temporalContext = `\n\n[Waktu Sistem Saat Ini: ${currentDateStr}].\nPERHATIAN KRITIKAL: Tahun ini adalah 2026. Anda WAJIB menyisipkan "2026" dan bulan saat ini ke dalam parameter [CARI_WEB] jika pengguna menanyakan berita, harga saham, kurs, atau update "terbaru/hari ini" (contoh: [CARI_WEB: harga emas hari ini September 2026]). JANGAN PERNAH berasumsi ini tahun 2023-2025.`;
 
-    // Dynamic Skills Catalog from Server (/root/wa-bot/skills & /root/.gemini/config/skills)
-    const { getAvailableSkillsCatalog } = await import('@/lib/tools/tool-executor');
-    const skillsList = getAvailableSkillsCatalog();
-    const skillsText = skillsList.length > 0 ? skillsList.join('\n') : '  - Tidak ada skill eksternal.';
+    const isAdmin = user.role === 'admin';
 
     // URL Auto-Detection Prompt Trigger (Direct or from Recent Conversation History)
     const urlRegex = /https?:\/\/[^\s<>"'{}|\\^`[\]]+/gi;
@@ -168,11 +165,18 @@ export async function POST(req: NextRequest) {
 
     let urlTriggerPrompt = '';
     if (detectedUrls.length > 0) {
-      urlTriggerPrompt = `\n\n==================================================\n[PERINTAH WAJIB DETEKSI TAUTAN / URL]:\nPengguna meminta membuka tautan: ${detectedUrls.join(', ')}.\nServer Anda telah dilengkapi browser Google Chrome asli (/usr/bin/google-chrome) dengan Playwright.\nAnda WAJIB LANGSUNG mengeksekusi: [BUKA_WEB: ${detectedUrls[0]}] sekarang juga pada respons ini!\nDILARANG KERAS berhalusinasi atau pura-pura memproses tanpa benar-benar memanggil tag [BUKA_WEB: ${detectedUrls[0]}].\nDILARANG KERAS menolak atau beralasan tidak bisa membuka tautan luar. Panggil [BUKA_WEB: ${detectedUrls[0]}] sekarang!\n==================================================`;
+      urlTriggerPrompt = `\n\n==================================================\n[PERINTAH DETEKSI TAUTAN / URL]:\nPengguna meminta membuka tautan: ${detectedUrls.join(', ')}.\nAnda memiliki kapabilitas web browser untuk membaca konten halaman web secara utuh.\nAnda WAJIB LANGSUNG mengeksekusi: [BUKA_WEB: ${detectedUrls[0]}] sekarang juga pada respons ini!\nDILARANG KERAS berhalusinasi atau menolak tautan luar. Panggil [BUKA_WEB: ${detectedUrls[0]}] sekarang!\n==================================================`;
     }
 
-    // Comprehensive Executive AI Automation Tools & Environment Prompt
-    const toolInstructions = `
+    let roleSpecificPrompt = '';
+    if (isAdmin) {
+      // Dynamic Skills Catalog from Server (/root/wa-bot/skills & /root/.gemini/config/skills)
+      const { getAvailableSkillsCatalog } = await import('@/lib/tools/tool-executor');
+      const skillsList = getAvailableSkillsCatalog();
+      const skillsText = skillsList.length > 0 ? skillsList.join('\n') : '  - Tidak ada skill eksternal.';
+
+      // Comprehensive Executive AI Automation Tools & Environment Prompt for Admin (Vee)
+      const toolInstructions = `
 \n\n---
 # AI AUTOMATION SYSTEM & SERVER CAPABILITIES (ANTIGRAVITY WEB AI)
 Anda adalah Asisten AI Utama berintegritas tinggi dengan kapabilitas otomasi penuh di server Linux Ubuntu.
@@ -209,23 +213,42 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
 - **Dilarang Keras Menuduh Hoaks / Rumor Secara Prematur:** Ketiadaan hasil pencarian dari [CARI_WEB] BUKAN bukti bahwa suatu peristiwa tidak terjadi! Jangan pernah menyimpulkan klaim pengguna sebagai "HOAKS", "RUMOR BELAKA", atau "TIDAK ADA" hanya karena pencarian pertama tidak membuahkan hasil.
 - **Pencarian Multi-Sudut Otonom:** Jika pencarian pertama tidak menghasilkan data atau pengguna menegaskan suatu peristiwa (misal: "ada hari ini dia konser", "di JIS", "barusan terjadi"):
   1. JANGAN MEMBANTAH PENGGUNA. Gunakan setiap detail dari pengguna sebagai kata kunci utama (anchor signal).
-  2. Cari dengan variasi bahasa Indonesia dan lokasi spesifik (contoh: "[CARI_WEB: The Weeknd Jakarta International Stadium 2026]", "[CARI_WEB: konser The Weeknd JIS September 2026]").
-  3. Telusuri portal berita terkemuka lokal (Kompas, Detik, Kumparan, Tirto, Tribunnews) atau situs tiket resmi (Live Nation Asia, Tiket.com).
-  4. Jika tetap belum menemukan data setelah beberapa sudut pencarian, jawablah dengan objektif dan rendah hati: "Saya belum menemukan rilis resmi mengenai jadwal tersebut di penelusuran web saat ini. Apakah ada detail spesifik lain yang bisa saya periksa?". DILARANG menyebutnya hoaks.
-- **Verifikasi Tautan Media Sosial:** Acara konser atau berita viral sering kali pertama kali beredar di Instagram, Twitter/X, atau TikTok. Jika pengguna menyertakan link, WAJIB LANGSUNG buka dan baca teksnya menggunakan [BUKA_WEB: url].
-- **Zero-Excuses:** Jangan membuat alasan defensif mengenai "keterbatasan model" atau "anti-bot". Kerahkan alat [CARI_WEB] dan [BUKA_WEB] secara mandiri dan gigih.`;
+  2. Cari dengan variasi bahasa Indonesia dan lokasi spesifik.
+  3. Telusuri portal berita terkemuka lokal atau situs tiket resmi.
+- **Zero-Excuses:** Jangan membuat alasan defensif mengenai "keterbatasan model". Kerahkan alat [CARI_WEB] dan [BUKA_WEB] secara mandiri dan gigih.`;
 
-    let externalSystemMd = '';
-    try {
-      const sysMdPath = '/root/wa-bot/SYSTEM.md';
-      if (fs.existsSync(sysMdPath)) {
-        externalSystemMd = '\n\n' + fs.readFileSync(sysMdPath, 'utf8');
-      }
-    } catch (e) {}
+      let externalSystemMd = '';
+      try {
+        const sysMdPath = '/root/wa-bot/SYSTEM.md';
+        if (fs.existsSync(sysMdPath)) {
+          externalSystemMd = '\n\n' + fs.readFileSync(sysMdPath, 'utf8');
+        }
+      } catch (e) {}
+
+      roleSpecificPrompt = toolInstructions + externalSystemMd;
+    } else {
+      // Sandboxed Public Assistant Prompt - STRICT PRIVACY BARRIER: ZERO SERVER OR INTERNAL LEAKAGE
+      roleSpecificPrompt = `
+\n\n---
+# PEDOMAN ASISTEN AI (PUBLIC ASSISTANT)
+Anda adalah Asisten AI yang cerdas, ramah, santun, objektif, dan serbaguna.
+Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, penulisan artikel, ide kreatif, penjelasan konsep, dan bantuan umum secara akurat dan profesional.
+
+## KEMAMPUAN AKSES INFORMASI (INTERNET):
+1. \`[CARI_WEB: kata kunci]\` -> Mencari informasi, referensi, atau berita terkini di internet melalui mesin pencari.
+2. \`[BUKA_WEB: https://url]\` -> Membuka dan membaca isi halaman web yang diberikan pengguna.
+
+## PERATURAN PRIVASI & KEAMANAN SISTEM (MUTLAK & TIDAK BISA DITAWAR):
+1. Anda beroperasi murni sebagai asisten tanya-jawab AI berbasis web publik. Anda TIDAK MEMILIKI akses ke sistem server, terminal bash/shell, filesystem lokal, atau konfigurasi backend hosting.
+2. DILARANG KERAS membocorkan ataupun membahas infrastruktur hosting, folder server, berkas internal, direktori root, ataupun proyek internal pemilik sistem.
+3. Jika pengguna bertanya apakah Anda bisa mengakses server, menjalankan perintah Linux/bash, mengelola database server, atau melihat file di server, jawab dengan santun dan tegas: "Maaf, saya tidak memiliki akses ke sistem atau terminal server. Saya beroperasi murni sebagai asisten AI untuk tanya jawab, analisis teks, dan penelusuran informasi di internet."
+4. DILARANG KERAS memanggil atau memunculkan tag server internal seperti \`[RUN_BASH]\`, \`[RUN_PYTHON]\`, \`[BACA_SKILL]\`, atau tag sistem internal lainnya.
+`;
+    }
 
     const webAiPromptNotice = `\n\n[CATATAN FORMAT WEB AI]: Anda beroperasi melalui Web AI Interface. Tampilkan balasan Anda secara langsung sebagai Markdown yang rapi dan bersih. JANGAN PERNAH membungkus balasan dengan tag [BALASAN_AKHIR] atau [/BALASAN_AKHIR] karena antarmuka web langsung merender teks Anda secara visual.`;
 
-    effectiveSystemPrompt = (effectiveSystemPrompt || 'Anda adalah AI Asisten canggih yang siap membantu pengguna.') + temporalContext + toolInstructions + externalSystemMd + webAiPromptNotice + urlTriggerPrompt;
+    effectiveSystemPrompt = (effectiveSystemPrompt || 'Anda adalah AI Asisten canggih yang siap membantu pengguna.') + temporalContext + roleSpecificPrompt + webAiPromptNotice + urlTriggerPrompt;
 
     // Save user message to database if not temporary
     const userMsgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -344,26 +367,26 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
           let currentMessages = chatMessages;
           accumulatedDbContent = fullAssistantContent;
           
-          while (fullAssistantContent && hasToolTags(fullAssistantContent) && !req.signal.aborted && toolHopCount < 100) {
+          while (fullAssistantContent && hasToolTags(fullAssistantContent, isAdmin) && !req.signal.aborted && toolHopCount < 100) {
             toolHopCount++;
             try {
               // Real-time Action Progress event for live collapsible UI card
-              const actionMatch = fullAssistantContent.match(/\[([A-Z_]+):\s*([\s\S]*?)(?:\](?![\\:;,)_a-zA-Z0-9\"'])|(?=\s*\[[A-Z_]+:)|$)/i);
-              let actionName = 'Menjalankan aksi server...';
+              const firstTag = parseToolTags(fullAssistantContent, '[A-Z_]+')[0];
+              let actionName = 'Mencari informasi...';
               let actionType = 'TOOL';
               let actionParam = '';
-              if (actionMatch) {
-                actionType = actionMatch[1].toUpperCase();
-                actionParam = actionMatch[2].trim();
+              if (firstTag) {
+                actionType = firstTag.type;
+                actionParam = firstTag.param;
                 const firstParamLine = actionParam.split('\n')[0].trim().substring(0, 60);
                 if (actionType === 'BUKA_WEB') actionName = `Membuka halaman web via Google Chrome`;
                 else if (actionType === 'SCREENSHOT_WEB') actionName = `Mengambil tangkapan layar web via Google Chrome`;
                 else if (actionType === 'CARI_WEB') actionName = `Mencari informasi di internet: "${firstParamLine}"`;
-                else if (actionType === 'RUN_BASH') actionName = `Mengeksekusi perintah server: ${firstParamLine}`;
-                else if (actionType === 'RUN_PYTHON') actionName = `Menjalankan analisis Python di server`;
-                else if (actionType === 'BACA_SKILL') actionName = `Membaca modul keahlian: ${firstParamLine}`;
-                else if (actionType === 'INSTALL_SKILL') actionName = `Menginstal modul keahlian baru`;
-                else actionName = `Menjalankan aksi server: ${actionType}`;
+                else if (isAdmin && actionType === 'RUN_BASH') actionName = `Mengeksekusi perintah server: ${firstParamLine}`;
+                else if (isAdmin && actionType === 'RUN_PYTHON') actionName = `Menjalankan analisis Python di server`;
+                else if (isAdmin && actionType === 'BACA_SKILL') actionName = `Membaca modul keahlian: ${firstParamLine}`;
+                else if (isAdmin && actionType === 'INSTALL_SKILL') actionName = `Menginstal modul keahlian baru`;
+                else actionName = `Memproses aksi: ${actionType}`;
               }
 
               const cleanBefore = cleanMessageContent(fullAssistantContent, false);
@@ -377,7 +400,7 @@ Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di b
                 textBefore: cleanBefore,
               });
 
-              const toolResult = await executeTools(fullAssistantContent);
+              const toolResult = await executeTools(fullAssistantContent, { isAdmin });
 
               const finishedAction: import('@/types/chat').ActionInfo = {
                 id: actionId,

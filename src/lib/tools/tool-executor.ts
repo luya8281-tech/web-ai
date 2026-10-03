@@ -7,6 +7,7 @@
 import { exec, execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { parseToolTags } from '@/lib/utils/clean-content';
 
 export interface ToolResult {
   hasAction: boolean;
@@ -223,30 +224,41 @@ function stripCodeBlocks(text: string): string {
 /**
  * Detect if the AI response contains any actionable tool tags outside code blocks.
  */
-export function hasToolTags(text: string): boolean {
+export function hasToolTags(text: string, isAdmin = false): boolean {
   const clean = stripCodeBlocks(text);
-  return /\[(?:CARI_WEB|RUN_BASH|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL|RUN_PYTHON|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):/i.test(clean);
+  if (isAdmin) {
+    return /\[(?:CARI_WEB|RUN_BASH|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL|RUN_PYTHON|SIMPAN_MEMORI|RINGKAS_YOUTUBE|BUAT_PDF|BACA_OCR):/i.test(clean);
+  }
+  return /\[(?:CARI_WEB|BUKA_WEB|SCREENSHOT_WEB):/i.test(clean);
+}
+
+export interface ExecuteToolOptions {
+  isAdmin?: boolean;
 }
 
 /**
  * Execute all tool tags found in the AI response text.
+ * Server administration tools (BASH, PYTHON, SKILLS) require isAdmin === true.
  * Returns an observation string to inject back into the conversation.
  */
-export async function executeTools(aiReply: string): Promise<ToolResult> {
+export async function executeTools(aiReply: string, options?: ExecuteToolOptions): Promise<ToolResult> {
+  const isAdmin = Boolean(options?.isAdmin);
   const cleanReply = stripCodeBlocks(aiReply);
   const observationParts: string[] = [];
   let hasAction = false;
 
-  // 1. [BACA_SKILL: name]
-  const skillRegex = /\[BACA_SKILL:\s*([a-zA-Z0-9_-]+)\]/gi;
-  const skillMatches = Array.from(cleanReply.matchAll(skillRegex));
-  for (const m of skillMatches) {
-    const skillName = m[1].trim();
-    if (skillName) {
-      hasAction = true;
-      console.log(`[ToolExecutor] Reading skill: ${skillName}`);
-      const content = readSkill(skillName);
-      observationParts.push(`[SKILL CONTENT: ${skillName}]:\n${content}`);
+  // 1. [BACA_SKILL: name] - Admin Only
+  if (isAdmin) {
+    const skillRegex = /\[BACA_SKILL:\s*([a-zA-Z0-9_-]+)\]/gi;
+    const skillMatches = Array.from(cleanReply.matchAll(skillRegex));
+    for (const m of skillMatches) {
+      const skillName = m[1].trim();
+      if (skillName) {
+        hasAction = true;
+        console.log(`[ToolExecutor] Reading skill: ${skillName}`);
+        const content = readSkill(skillName);
+        observationParts.push(`[SKILL CONTENT: ${skillName}]:\n${content}`);
+      }
     }
   }
 
@@ -307,110 +319,121 @@ export async function executeTools(aiReply: string): Promise<ToolResult> {
     }
   }
 
-  // 3c. [INSTALL_SKILL: nama_skill | isi_markdown_sop]
-  const installRegex = /\[INSTALL_SKILL:\s*([a-zA-Z0-9_-]+)\s*\|\s*([\s\S]*?)\]/gi;
-  const installMatches = Array.from(cleanReply.matchAll(installRegex)).slice(0, 1);
-  for (const m of installMatches) {
-    const name = m[1].trim();
-    const sop = m[2].trim();
-    if (name && sop) {
-      hasAction = true;
-      const res = installSkill(name, sop);
-      observationParts.push(`[INSTALASI SKILL]: ${res.message}`);
+  // 3c. [INSTALL_SKILL: nama_skill | isi_markdown_sop] - Admin Only
+  if (isAdmin) {
+    const installRegex = /\[INSTALL_SKILL:\s*([a-zA-Z0-9_-]+)\s*\|\s*([\s\S]*?)\]/gi;
+    const installMatches = Array.from(cleanReply.matchAll(installRegex)).slice(0, 1);
+    for (const m of installMatches) {
+      const name = m[1].trim();
+      const sop = m[2].trim();
+      if (name && sop) {
+        hasAction = true;
+        const res = installSkill(name, sop);
+        observationParts.push(`[INSTALASI SKILL]: ${res.message}`);
+      }
     }
   }
 
-  // 4. [RUN_BASH: command]
-  const bashRegex = /\[RUN_BASH:\s*([\s\S]*?)(?:\](?![\\:;,)_a-zA-Z0-9\"'])|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
-  const bashMatches = Array.from(cleanReply.matchAll(bashRegex)).slice(0, 3);
-  for (const m of bashMatches) {
-    const cmd = m[1].trim();
-    if (cmd) {
+  // 4. [RUN_BASH: command] - Admin Only
+  if (isAdmin) {
+    const bashMatches = parseToolTags(cleanReply).filter(t => t.type === 'RUN_BASH').slice(0, 3);
+    for (const m of bashMatches) {
+      const cmd = m.param;
+      if (cmd) {
+        hasAction = true;
+        console.log(`[ToolExecutor] Running bash (admin): ${cmd.split('\n')[0]}`);
+        const result = await runBashCommand(cmd);
+        if (result.success) {
+          observationParts.push(`[BASH OUTPUT: ${cmd.substring(0, 100)}]:\n${truncateOutput(result.output, 2000)}`);
+        } else {
+          observationParts.push(`[BASH FAILED: ${cmd.substring(0, 100)}]:\nError: ${result.error}\nOutput: ${truncateOutput(result.output, 1000)}`);
+        }
+      }
+    }
+  }
+
+  // 5. [RUN_PYTHON: code] - Admin Only
+  if (isAdmin) {
+    const pyMatches = parseToolTags(cleanReply).filter(t => t.type === 'RUN_PYTHON').slice(0, 1);
+    for (const m of pyMatches) {
+      const code = m.param;
+      if (code) {
+        hasAction = true;
+        console.log(`[ToolExecutor] Running Python script (admin)...`);
+        const scriptPath = path.join('/root/ai-chat/data', `temp_${Date.now()}.py`);
+        fs.writeFileSync(scriptPath, code);
+        const result = await runBashCommand(`python3 ${scriptPath}`);
+        try { fs.unlinkSync(scriptPath); } catch (e) {} // cleanup
+        
+        if (result.success) {
+          observationParts.push(`[PYTHON OUTPUT]:\n${truncateOutput(result.output, 2000)}`);
+        } else {
+          observationParts.push(`[PYTHON FAILED]:\nError: ${result.error}\nOutput: ${truncateOutput(result.output, 1000)}`);
+        }
+      }
+    }
+  }
+
+  // 6. [SIMPAN_MEMORI: fakta] - Admin Only
+  if (isAdmin) {
+    const memRegex = /\[SIMPAN_MEMORI:\s*([^\n\r\]]+)\]/gi;
+    const memMatches = Array.from(cleanReply.matchAll(memRegex));
+    for (const m of memMatches) {
+      const fact = m[1].trim();
+      if (fact) {
+        hasAction = true;
+        try {
+          fs.appendFileSync('/root/wa-bot/global_memory.txt', fact + '\n');
+          observationParts.push(`[MEMORI DISIMPAN]: ${fact}`);
+        } catch (e: any) {
+          observationParts.push(`[SIMPAN MEMORI FAILED]: ${e.message}`);
+        }
+      }
+    }
+  }
+
+  // 7. [RINGKAS_YOUTUBE: url] - Admin Only
+  if (isAdmin) {
+    const ytRegex = /\[RINGKAS_YOUTUBE:\s*(https?:\/\/[^\s\]]+)\]/gi;
+    const ytMatches = Array.from(cleanReply.matchAll(ytRegex)).slice(0, 1);
+    for (const m of ytMatches) {
+      const ytUrl = m[1].trim();
+      if (ytUrl) {
+        hasAction = true;
+        console.log(`[ToolExecutor] YouTube Script: ${ytUrl}`);
+        const result = await runBashCommand(`yt-dlp --dump-json "${ytUrl}" | jq -r '{title: .title, duration: .duration, uploader: .uploader, description: .description}'`);
+        if (result.success) {
+          observationParts.push(`[INFO YOUTUBE]:\n${truncateOutput(result.output, 2500)}\n\nSilakan rangkum metadata di atas.`);
+        } else {
+          observationParts.push(`[ERROR YOUTUBE]: ${truncateOutput(result.error || result.output, 500)}`);
+        }
+      }
+    }
+  }
+
+  // 8. [BUAT_PDF: code | file] - Admin Only
+  if (isAdmin) {
+    const pdfRegex = /\[BUAT_PDF:\s*([\s\S]*?)\s*\|\s*([^\]]+)\]/gi;
+    const pdfMatches = Array.from(cleanReply.matchAll(pdfRegex)).slice(0, 1);
+    for (const m of pdfMatches) {
       hasAction = true;
-      console.log(`[ToolExecutor] Running bash: ${cmd.split('\n')[0]}`);
-      const result = await runBashCommand(cmd);
+      observationParts.push(`[BUAT_PDF]: PDF berhasil digenerate di server (Mock Web Implementation).`);
+    }
+  }
+
+  // 9. [BACA_OCR: path] - Admin Only
+  if (isAdmin) {
+    const ocrRegex = /\[BACA_OCR:\s*([^\]]+)\]/gi;
+    const ocrMatches = Array.from(cleanReply.matchAll(ocrRegex)).slice(0, 1);
+    for (const m of ocrMatches) {
+      const imgPath = m[1].trim();
+      hasAction = true;
+      const result = await runBashCommand(`tesseract "${imgPath}" stdout`);
       if (result.success) {
-        observationParts.push(`[BASH OUTPUT: ${cmd.substring(0, 100)}]:\n${truncateOutput(result.output, 2000)}`);
+        observationParts.push(`[HASIL OCR]:\n${truncateOutput(result.output, 2000)}`);
       } else {
-        observationParts.push(`[BASH FAILED: ${cmd.substring(0, 100)}]:\nError: ${result.error}\nOutput: ${truncateOutput(result.output, 1000)}`);
+        observationParts.push(`[ERROR OCR]: ${truncateOutput(result.error || '', 500)}`);
       }
-    }
-  }
-
-  // 5. [RUN_PYTHON: code]
-  const pyRegex = /\[RUN_PYTHON:\s*([\s\S]*?)(?:\](?![\\:;,)_a-zA-Z0-9\"'])|(?=\s*\[(?:RUN_BASH|RUN_PYTHON|CARI_WEB|BUKA_WEB|SCREENSHOT_WEB|BACA_SKILL|INSTALL_SKILL):)|$)/gi;
-  const pyMatches = Array.from(cleanReply.matchAll(pyRegex)).slice(0, 1);
-  for (const m of pyMatches) {
-    const code = m[1].trim();
-    if (code) {
-      hasAction = true;
-      console.log(`[ToolExecutor] Running Python script...`);
-      const scriptPath = path.join('/root/ai-chat/data', `temp_${Date.now()}.py`);
-      fs.writeFileSync(scriptPath, code);
-      const result = await runBashCommand(`python3 ${scriptPath}`);
-      try { fs.unlinkSync(scriptPath); } catch (e) {} // cleanup
-      
-      if (result.success) {
-        observationParts.push(`[PYTHON OUTPUT]:\n${truncateOutput(result.output, 2000)}`);
-      } else {
-        observationParts.push(`[PYTHON FAILED]:\nError: ${result.error}\nOutput: ${truncateOutput(result.output, 1000)}`);
-      }
-    }
-  }
-
-  // 6. [SIMPAN_MEMORI: fakta]
-  const memRegex = /\[SIMPAN_MEMORI:\s*([^\n\r\]]+)\]/gi;
-  const memMatches = Array.from(cleanReply.matchAll(memRegex));
-  for (const m of memMatches) {
-    const fact = m[1].trim();
-    if (fact) {
-      hasAction = true;
-      try {
-        fs.appendFileSync('/root/wa-bot/global_memory.txt', fact + '\n');
-        observationParts.push(`[MEMORI DISIMPAN]: ${fact}`);
-      } catch (e: any) {
-        observationParts.push(`[SIMPAN MEMORI FAILED]: ${e.message}`);
-      }
-    }
-  }
-
-  // 7. [RINGKAS_YOUTUBE: url]
-  const ytRegex = /\[RINGKAS_YOUTUBE:\s*(https?:\/\/[^\s\]]+)\]/gi;
-  const ytMatches = Array.from(cleanReply.matchAll(ytRegex)).slice(0, 1);
-  for (const m of ytMatches) {
-    const ytUrl = m[1].trim();
-    if (ytUrl) {
-      hasAction = true;
-      console.log(`[ToolExecutor] YouTube Script: ${ytUrl}`);
-      // Use wa-bot's python script if available, or just fallback to yt-dlp
-      const result = await runBashCommand(`yt-dlp --dump-json "${ytUrl}" | jq -r '{title: .title, duration: .duration, uploader: .uploader, description: .description}'`);
-      if (result.success) {
-        observationParts.push(`[INFO YOUTUBE]:\n${truncateOutput(result.output, 2500)}\n\nSilakan rangkum metadata di atas.`);
-      } else {
-        observationParts.push(`[ERROR YOUTUBE]: ${truncateOutput(result.error || result.output, 500)}`);
-      }
-    }
-  }
-
-  // 8. [BUAT_PDF: code | file]
-  const pdfRegex = /\[BUAT_PDF:\s*([\s\S]*?)\s*\|\s*([^\]]+)\]/gi;
-  const pdfMatches = Array.from(cleanReply.matchAll(pdfRegex)).slice(0, 1);
-  for (const m of pdfMatches) {
-    hasAction = true;
-    observationParts.push(`[BUAT_PDF]: PDF berhasil digenerate di server (Mock Web Implementation).`);
-  }
-
-  // 9. [BACA_OCR: path]
-  const ocrRegex = /\[BACA_OCR:\s*([^\]]+)\]/gi;
-  const ocrMatches = Array.from(cleanReply.matchAll(ocrRegex)).slice(0, 1);
-  for (const m of ocrMatches) {
-    const imgPath = m[1].trim();
-    hasAction = true;
-    const result = await runBashCommand(`tesseract "${imgPath}" stdout`);
-    if (result.success) {
-      observationParts.push(`[HASIL OCR]:\n${truncateOutput(result.output, 2000)}`);
-    } else {
-      observationParts.push(`[ERROR OCR]: ${truncateOutput(result.error || '', 500)}`);
     }
   }
 
