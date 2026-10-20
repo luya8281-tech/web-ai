@@ -5,23 +5,34 @@ import {
   Plus,
   Search,
   Pin,
-  FolderPlus,
   Archive,
   Settings,
   X,
-  Sun,
-  Moon,
+  Palette,
   Folder,
-  Sliders,
-  Sparkles,
   LogOut,
+  BookOpen,
+  Plug,
+  Terminal,
+  Brain,
+  KeyRound,
 } from 'lucide-react';
 import { useChatStore } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useUIStore } from '@/stores/ui-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { ConversationItem } from './conversation-item';
-import { Conversation } from '@/types/chat';
+import { Conversation, AppTheme } from '@/types/chat';
+
+const THEME_CYCLE: { id: AppTheme; label: string }[] = [
+  { id: 'dark', label: 'Claude Obsidian' },
+  { id: 'light', label: 'Claude Paper' },
+  { id: 'midnight', label: 'Midnight Slate' },
+  { id: 'nord', label: 'Nordic Frost' },
+  { id: 'mocha', label: 'Warm Mocha' },
+  { id: 'rose', label: 'Velvet Rose' },
+  { id: 'sand', label: 'Sepia Sand' },
+];
 
 export const Sidebar: React.FC = () => {
   const {
@@ -30,13 +41,21 @@ export const Sidebar: React.FC = () => {
     searchQuery,
     setSearchQuery,
     projects,
-    activeProjectId,
     createProject,
     loadConversations,
   } = useChatStore();
 
   const { settings, updateSettings } = useSettingsStore();
-  const { sidebarOpen, setSidebarOpen, setSettingsOpen } = useUIStore();
+  const {
+    sidebarOpen,
+    setSidebarOpen,
+    setSettingsOpen,
+    setSkillsDialogOpen,
+    setConnectorsDialogOpen,
+    setVaultDialogOpen,
+    setWorkspaceOpen,
+    addToast,
+  } = useUIStore();
   const { user, logout, checkAuth } = useAuthStore();
 
   React.useEffect(() => {
@@ -47,7 +66,6 @@ export const Sidebar: React.FC = () => {
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
 
-  // Date Grouping logic (Section 13)
   const groupedConversations = useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -70,7 +88,6 @@ export const Sidebar: React.FC = () => {
       older: [],
     };
 
-    // Filter by search query
     const filtered = conversations.filter((c) => {
       if (searchQuery.trim()) {
         return c.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -109,9 +126,11 @@ export const Sidebar: React.FC = () => {
     setNewProjectOpen(false);
   };
 
-  const toggleTheme = () => {
-    const next = settings.theme === 'dark' ? 'light' : 'dark';
-    updateSettings({ theme: next });
+  const cycleTheme = () => {
+    const curIdx = THEME_CYCLE.findIndex((t) => t.id === settings.theme);
+    const next = THEME_CYCLE[(curIdx + 1) % THEME_CYCLE.length];
+    updateSettings({ theme: next.id });
+    addToast(`Tema: ${next.label}`, 'info');
   };
 
   const toggleArchivedView = () => {
@@ -122,7 +141,6 @@ export const Sidebar: React.FC = () => {
 
   return (
     <>
-      {/* Mobile Backdrop Overlay */}
       {sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}
@@ -130,126 +148,181 @@ export const Sidebar: React.FC = () => {
         />
       )}
 
-      {/* Sidebar Container */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 w-[82vw] max-w-xs sm:w-72 h-[100dvh] flex flex-col bg-sidebar border-r border-sidebar-border transition-transform duration-200 ease-in-out ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:-translate-x-full md:hidden'
+        aria-label="Navigasi percakapan dan proyek"
+        className={`fixed md:static inset-y-0 left-0 z-40 w-[80vw] max-w-xs sm:w-64 flex flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-all duration-200 ease-in-out select-none font-sans ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:hidden'
         }`}
       >
-        {/* Top Header / Brand & New Chat */}
-        <div className="p-3 border-b border-sidebar-border space-y-2.5">
-          {/* Brand Logo & Domain */}
+        {/* Top Brand Header (V² Monogram, ZERO Mascot) */}
+        <div className="p-3 space-y-2 border-b border-sidebar-border">
           <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2.5">
-              <img src="/icon.svg" alt="Vee² AI" className="w-7 h-7 rounded-lg shadow-sm border border-primary/20 shrink-0" />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-sidebar-foreground tracking-tight">Vee² AI</span>
-                  <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-primary/15 text-primary border border-primary/25">PRO</span>
-                </div>
-                <p className="text-[10px] text-sidebar-foreground/50 font-mono">vee2.my.id</p>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 text-primary flex items-center justify-center font-serif font-bold text-xs">
+                V²
               </div>
+              <span className="font-semibold text-sm tracking-tight text-sidebar-foreground">
+                Vee Workspace
+              </span>
             </div>
-            {/* Mobile close button */}
+
             <button
+              type="button"
               onClick={() => setSidebarOpen(false)}
-              className="md:hidden p-1.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+              className="md:hidden p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+              aria-label="Tutup sidebar"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex items-center">
+          <button
+            type="button"
+            onClick={() => {
+              newChat();
+              if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                setSidebarOpen(false);
+              }
+            }}
+            className="w-full py-2 px-3 rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4 stroke-[2.2]" />
+            <span>Percakapan Baru</span>
+          </button>
+
+          {/* Quick Workspace & Connectors Shortcuts */}
+          <div className="grid grid-cols-3 gap-1">
             <button
-              onClick={() => {
-                newChat();
-                if (window.innerWidth < 768) setSidebarOpen(false);
-              }}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-primary text-primary-foreground font-medium text-xs sm:text-sm hover:bg-primary-hover shadow-xs transition-colors"
+              type="button"
+              onClick={() => setConnectorsDialogOpen(true)}
+              className="py-1.5 px-2 rounded-lg border border-sidebar-border bg-background/50 hover:bg-sidebar-accent text-[11px] font-medium text-sidebar-foreground flex items-center justify-center gap-1 transition-colors"
+              title="Buka Konektor AI Modern"
             >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>New Chat</span>
+              <Plug className="w-3 h-3 text-primary shrink-0" />
+              <span className="truncate">Konektor</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSkillsDialogOpen(true)}
+              className="py-1.5 px-2 rounded-lg border border-sidebar-border bg-background/50 hover:bg-sidebar-accent text-[11px] font-medium text-sidebar-foreground flex items-center justify-center gap-1 transition-colors"
+              title="Buka Katalog Skill"
+            >
+              <BookOpen className="w-3 h-3 text-primary shrink-0" />
+              <span className="truncate">Skill</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setWorkspaceOpen(true, 'terminal')}
+              className="py-1.5 px-2 rounded-lg border border-sidebar-border bg-background/50 hover:bg-sidebar-accent text-[11px] font-medium text-sidebar-foreground flex items-center justify-center gap-1 transition-colors"
+              title="Buka Terminal CLI & Web Aktif"
+            >
+              <Terminal className="w-3 h-3 text-primary shrink-0" />
+              <span className="truncate">CLI/Web</span>
             </button>
           </div>
 
-          {/* Search Input */}
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsOpen(true, 'memory');
+              if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                setSidebarOpen(false);
+              }
+            }}
+            className="w-full py-1.5 px-2 rounded-lg border border-sidebar-border bg-background/50 hover:bg-sidebar-accent text-[11px] font-medium text-sidebar-foreground flex items-center justify-center gap-1.5 transition-colors"
+            title="Kelola memori jangka panjang AI"
+          >
+            <Brain className="w-3 h-3 text-primary shrink-0" />
+            <span>Memori AI</span>
+          </button>
+
+          {/* Search Filter */}
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-sidebar-foreground/50" />
+            <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search conversations... (Ctrl+K)"
+              placeholder="Cari riwayat chat..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground placeholder:text-sidebar-foreground/50 text-xs focus:outline-none focus:border-primary/50"
+              className="w-full pl-8 pr-6 py-1.5 text-xs rounded-lg bg-background border border-sidebar-border text-sidebar-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
         </div>
 
         {/* Scrollable Conversation List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-4">
-          {/* Projects / Folders */}
-          {projects.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between px-2 mb-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                <span>Folders</span>
+        <div className="flex-1 overflow-y-auto px-2 py-2.5 space-y-4">
+          {/* Projects Folder Section */}
+          <div>
+            <div className="flex items-center justify-between px-2 mb-1">
+              <span className="text-[11px] font-semibold text-muted-foreground">
+                Proyek
+              </span>
+              <button
+                type="button"
+                onClick={() => setNewProjectOpen(!newProjectOpen)}
+                className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                title="Tambah proyek"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {newProjectOpen && (
+              <form onSubmit={handleCreateProject} className="mb-2 px-1 flex gap-1">
+                <input
+                  type="text"
+                  placeholder="Nama proyek..."
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  autoFocus
+                  className="flex-1 text-xs px-2 py-1 rounded bg-background border border-sidebar-border focus:outline-none focus:border-primary"
+                />
                 <button
-                  onClick={() => setNewProjectOpen(!newProjectOpen)}
-                  className="hover:text-sidebar-foreground"
-                  title="New Folder"
+                  type="submit"
+                  className="text-xs px-2 py-1 bg-primary text-primary-foreground rounded font-medium"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  Simpan
                 </button>
-              </div>
+              </form>
+            )}
 
-              {newProjectOpen && (
-                <form onSubmit={handleCreateProject} className="p-2 mb-2 rounded border border-border bg-card">
-                  <input
-                    type="text"
-                    placeholder="Folder name..."
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    autoFocus
-                    className="w-full text-xs p-1 border rounded bg-background text-foreground mb-1.5"
-                  />
-                  <div className="flex justify-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setNewProjectOpen(false)}
-                      className="px-2 py-0.5 text-[11px] rounded hover:bg-muted"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-2 py-0.5 text-[11px] rounded bg-primary text-primary-foreground"
-                    >
-                      Create
-                    </button>
-                  </div>
-                </form>
-              )}
-
+            {projects.length > 0 && (
               <div className="space-y-0.5">
                 {projects.map((proj) => (
                   <button
                     key={proj.id}
+                    type="button"
                     onClick={() => newChat(proj.id)}
-                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-sidebar-foreground hover:bg-sidebar-accent transition-colors text-left"
                   >
-                    <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                    <Folder
+                      className="w-3.5 h-3.5 shrink-0"
+                      style={{ color: proj.color || 'var(--primary)' }}
+                    />
                     <span className="truncate">{proj.name}</span>
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Pinned Section */}
           {groupedConversations.pinned.length > 0 && (
             <div>
-              <div className="flex items-center gap-1 px-2 mb-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                <Pin className="w-3 h-3 rotate-45" />
-                <span>Pinned</span>
+              <div className="flex items-center gap-1.5 px-2 mb-1 text-[11px] font-semibold text-muted-foreground">
+                <Pin className="w-3 h-3 text-primary" />
+                <span>Disematkan</span>
               </div>
               <div className="space-y-0.5">
                 {groupedConversations.pinned.map((conv) => (
@@ -262,8 +335,8 @@ export const Sidebar: React.FC = () => {
           {/* Date Grouped Sections */}
           {groupedConversations.groups.today.length > 0 && (
             <div>
-              <div className="px-2 mb-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                Today
+              <div className="px-2 mb-1 text-[11px] font-semibold text-muted-foreground">
+                Hari ini
               </div>
               <div className="space-y-0.5">
                 {groupedConversations.groups.today.map((conv) => (
@@ -275,8 +348,8 @@ export const Sidebar: React.FC = () => {
 
           {groupedConversations.groups.yesterday.length > 0 && (
             <div>
-              <div className="px-2 mb-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                Yesterday
+              <div className="px-2 mb-1 text-[11px] font-semibold text-muted-foreground">
+                Kemarin
               </div>
               <div className="space-y-0.5">
                 {groupedConversations.groups.yesterday.map((conv) => (
@@ -288,8 +361,8 @@ export const Sidebar: React.FC = () => {
 
           {groupedConversations.groups.previous7Days.length > 0 && (
             <div>
-              <div className="px-2 mb-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                Previous 7 Days
+              <div className="px-2 mb-1 text-[11px] font-semibold text-muted-foreground">
+                7 Hari Terakhir
               </div>
               <div className="space-y-0.5">
                 {groupedConversations.groups.previous7Days.map((conv) => (
@@ -301,8 +374,8 @@ export const Sidebar: React.FC = () => {
 
           {groupedConversations.groups.previous30Days.length > 0 && (
             <div>
-              <div className="px-2 mb-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                Previous 30 Days
+              <div className="px-2 mb-1 text-[11px] font-semibold text-muted-foreground">
+                30 Hari Terakhir
               </div>
               <div className="space-y-0.5">
                 {groupedConversations.groups.previous30Days.map((conv) => (
@@ -314,8 +387,8 @@ export const Sidebar: React.FC = () => {
 
           {groupedConversations.groups.older.length > 0 && (
             <div>
-              <div className="px-2 mb-1 text-[11px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
-                Older
+              <div className="px-2 mb-1 text-[11px] font-semibold text-muted-foreground">
+                Lebih lama
               </div>
               <div className="space-y-0.5">
                 {groupedConversations.groups.older.map((conv) => (
@@ -326,74 +399,77 @@ export const Sidebar: React.FC = () => {
           )}
 
           {conversations.length === 0 && (
-            <div className="text-center py-8 text-xs text-sidebar-foreground/50">
-              No conversations yet.
+            <div className="text-center py-8 px-3 text-xs text-muted-foreground">
+              Belum ada percakapan.
             </div>
           )}
         </div>
 
-        {/* Footer: User profile & Settings */}
-        <div className="p-3 border-t border-sidebar-border bg-sidebar space-y-1">
-          {/* Archived Toggle */}
+        {/* Footer: Archive, User Profile, Theme Cycler, Settings */}
+        <div className="p-2.5 border-t border-sidebar-border bg-sidebar space-y-1.5">
           <button
+            type="button"
             onClick={toggleArchivedView}
             className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               showArchived
-                ? 'bg-amber-500/10 text-amber-500'
-                : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                ? 'bg-primary/15 text-primary border border-primary/30'
+                : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground'
             }`}
           >
             <div className="flex items-center gap-2">
               <Archive className="w-3.5 h-3.5" />
-              <span>{showArchived ? 'Active Chats' : 'Archived Chats'}</span>
+              <span>{showArchived ? 'Kembali ke Chat Aktif' : 'Arsip Percakapan'}</span>
             </div>
           </button>
 
-          {/* User Profile Bar */}
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center justify-between pt-1 px-1">
             <div className="flex items-center gap-2 min-w-0 pr-1">
-              {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt={user.name || 'User'}
-                  className="w-7 h-7 rounded-full object-cover shrink-0 border border-primary/20"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                  {(user?.name || 'V').charAt(0).toUpperCase()}
-                </div>
-              )}
+              <div className="w-7 h-7 rounded-full bg-primary/15 text-primary border border-primary/30 flex items-center justify-center font-bold text-xs shrink-0">
+                {(user?.name || 'V').charAt(0).toUpperCase()}
+              </div>
               <div className="flex flex-col text-left truncate">
                 <span className="text-xs font-semibold text-sidebar-foreground truncate">
                   {user?.name || 'Vee'}
                 </span>
-                <span className="text-[10px] text-sidebar-foreground/50">
-                  {user?.role === 'admin' ? 'Pemilik · Admin' : 'Sesi Pribadi'}
+                <span className="text-[10px] text-muted-foreground">
+                  {user?.role === 'admin' ? 'Admin' : 'Personal'}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-0.5 shrink-0">
               <button
-                onClick={toggleTheme}
-                className="p-1.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                title={`Toggle theme (current: ${settings.theme})`}
+                type="button"
+                onClick={cycleTheme}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                title={`Ganti tema warna (saat ini: ${settings.theme})`}
               >
-                {settings.theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                <Palette className="w-4 h-4" />
               </button>
 
               <button
+                type="button"
+                onClick={() => setVaultDialogOpen(true)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                title="Buka Brankas Sandi & Email (Vault)"
+              >
+                <KeyRound className="w-4 h-4 text-primary" />
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setSettingsOpen(true)}
-                className="p-1.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                title="Settings"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                title="Pengaturan"
               >
                 <Settings className="w-4 h-4" />
               </button>
 
               <button
+                type="button"
                 onClick={() => logout()}
-                className="p-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
-                title="Keluar (Logout)"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                title="Keluar"
               >
                 <LogOut className="w-4 h-4" />
               </button>

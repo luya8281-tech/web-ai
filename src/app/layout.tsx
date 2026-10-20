@@ -4,6 +4,9 @@ import './globals.css';
 import { ToastContainer } from '@/components/ui/toast-container';
 import { ModelSelectorDialog } from '@/components/model-selector/model-selector-dialog';
 import { SettingsDialog } from '@/components/settings/settings-dialog';
+import { SkillsDialog } from '@/components/skills/skills-dialog';
+import { ConnectorsDialog } from '@/components/connectors/connectors-dialog';
+import { VaultDialog } from '@/components/vault/vault-dialog';
 import { CommandPalette } from '@/components/command-palette/command-palette';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
@@ -11,8 +14,8 @@ const lora = Lora({ subsets: ['latin'], variable: '--font-serif' });
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://vee2.my.id'),
-  title: 'Vee² AI · Production Assistant',
-  description: 'Autonomous multi-provider production AI chat platform on vee2.my.id.',
+  title: 'Vee² AI · Editorial Technical Workspace',
+  description: 'Multi-provider AI & server automation workspace on vee2.my.id.',
   manifest: '/manifest.json',
   icons: {
     icon: [
@@ -25,8 +28,8 @@ export const metadata: Metadata = {
     ],
   },
   openGraph: {
-    title: 'Vee² AI · Production Assistant',
-    description: 'Autonomous multi-provider production AI chat platform on vee2.my.id.',
+    title: 'Vee² AI · Editorial Technical Workspace',
+    description: 'Multi-provider AI & server automation workspace on vee2.my.id.',
     url: 'https://vee2.my.id',
     siteName: 'Vee² AI',
     images: [
@@ -42,8 +45,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Vee² AI · Production Assistant',
-    description: 'Autonomous multi-provider production AI chat platform on vee2.my.id.',
+    title: 'Vee² AI · Editorial Technical Workspace',
+    description: 'Multi-provider AI & server automation workspace on vee2.my.id.',
     images: ['/og-image.png'],
   },
 };
@@ -52,8 +55,6 @@ export const viewport: Viewport = {
   themeColor: '#111110',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: 'cover',
   interactiveWidget: 'resizes-content',
 };
@@ -64,7 +65,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="id" className="dark">
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -83,10 +84,13 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.variable} ${lora.variable} font-sans antialiased h-[100dvh] min-h-[100dvh] overflow-hidden bg-background text-foreground flex`}>
+      <body className={`${inter.variable} ${lora.variable} font-serif antialiased h-[100dvh] min-h-[100dvh] overflow-hidden bg-background text-foreground flex`}>
         {children}
         <ModelSelectorDialog />
         <SettingsDialog />
+        <SkillsDialog />
+        <ConnectorsDialog />
+        <VaultDialog />
         <CommandPalette />
         <ToastContainer />
       </body>

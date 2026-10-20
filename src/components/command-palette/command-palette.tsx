@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search,
   Plus,
-  Sparkles,
+  Cpu,
+  BookOpen,
   Settings,
   Sun,
   Moon,
@@ -12,6 +13,7 @@ import {
   Trash2,
   X,
   MessageSquare,
+  KeyRound,
 } from 'lucide-react';
 import { useChatStore } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -31,6 +33,8 @@ export const CommandPalette: React.FC = () => {
     commandPaletteOpen,
     setCommandPaletteOpen,
     setModelSelectorOpen,
+    setSkillsDialogOpen,
+    setVaultDialogOpen,
     setSettingsOpen,
     addToast,
   } = useUIStore();
@@ -57,38 +61,52 @@ export const CommandPalette: React.FC = () => {
     return [
       {
         id: 'new-chat',
-        title: 'New Chat Session',
+        title: 'Sesi Chat Baru',
         category: 'Actions',
         icon: <Plus className="w-4 h-4 text-primary" />,
         action: () => newChat(),
       },
       {
-        id: 'switch-model',
-        title: 'Switch AI Model',
+        id: 'open-skills',
+        title: 'Buka Katalog Skill Server',
         category: 'Actions',
-        icon: <Sparkles className="w-4 h-4 text-emerald-400" />,
+        icon: <BookOpen className="w-4 h-4 text-primary" />,
+        action: () => setSkillsDialogOpen(true),
+      },
+      {
+        id: 'open-vault',
+        title: 'Buka Brankas Sandi & Email (Vault)',
+        category: 'Actions',
+        icon: <KeyRound className="w-4 h-4 text-primary" />,
+        action: () => setVaultDialogOpen(true),
+      },
+      {
+        id: 'switch-model',
+        title: 'Ganti Model AI',
+        category: 'Actions',
+        icon: <Cpu className="w-4 h-4 text-muted-foreground" />,
         action: () => setModelSelectorOpen(true),
       },
       {
         id: 'open-settings',
-        title: 'Open Settings',
+        title: 'Buka Pengaturan',
         category: 'Actions',
-        icon: <Settings className="w-4 h-4 text-blue-400" />,
+        icon: <Settings className="w-4 h-4 text-muted-foreground" />,
         action: () => setSettingsOpen(true),
       },
       {
         id: 'toggle-theme',
-        title: `Switch to ${settings.theme === 'dark' ? 'Light' : 'Dark'} Mode`,
+        title: `Ganti ke Mode ${settings.theme === 'dark' ? 'Terang' : 'Gelap'}`,
         category: 'Preferences',
-        icon: settings.theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-400" />,
+        icon: settings.theme === 'dark' ? <Sun className="w-4 h-4 text-muted-foreground" /> : <Moon className="w-4 h-4 text-muted-foreground" />,
         action: () => updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' }),
       },
       ...(activeConversation ? [
         {
           id: 'export-chat',
-          title: `Export "${activeConversation.title}" as Markdown`,
+          title: `Ekspor "${activeConversation.title}" ke Markdown`,
           category: 'Conversation',
-          icon: <Download className="w-4 h-4 text-purple-400" />,
+          icon: <Download className="w-4 h-4 text-muted-foreground" />,
           action: async () => {
             const res = await fetch(`/api/conversations/${activeConversation.id}/export`, {
               method: 'POST',
@@ -102,19 +120,19 @@ export const CommandPalette: React.FC = () => {
             a.download = `${activeConversation.title}.md`;
             a.click();
             URL.revokeObjectURL(url);
-            addToast('Exported Markdown', 'success');
+            addToast('Chat diekspor ke Markdown', 'success');
           },
         },
         {
           id: 'delete-chat',
-          title: `Delete Current Conversation`,
+          title: `Hapus Percakapan Aktif`,
           category: 'Conversation',
           icon: <Trash2 className="w-4 h-4 text-destructive" />,
           action: () => deleteConversation(activeConversation.id),
         },
       ] : []),
     ];
-  }, [activeConversation, newChat, setModelSelectorOpen, setSettingsOpen, settings.theme, updateSettings, addToast, deleteConversation]);
+  }, [activeConversation, newChat, setModelSelectorOpen, setSkillsDialogOpen, setSettingsOpen, settings.theme, updateSettings, addToast, deleteConversation]);
 
   // Filtered results
   const filteredActions = actions.filter((a) =>
@@ -135,7 +153,7 @@ export const CommandPalette: React.FC = () => {
           <Search className="w-4 h-4 text-muted-foreground shrink-0" />
           <input
             type="text"
-            placeholder="Type a command or search chats..."
+            placeholder="Ketik perintah atau cari chat..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             autoFocus
@@ -197,16 +215,15 @@ export const CommandPalette: React.FC = () => {
 
           {filteredActions.length === 0 && matchedConversations.length === 0 && (
             <div className="py-8 text-center text-muted-foreground">
-              No matching commands or conversations found.
+              Tidak ada hasil.
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>Navigate with mouse or keyboard</span>
+        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-end text-[11px] text-muted-foreground">
           <span>
-            <kbd className="font-mono bg-muted px-1.5 py-0.5 rounded border border-border">ESC</kbd> to close
+            <kbd className="font-mono bg-muted px-1.5 py-0.5 rounded border border-border">ESC</kbd> untuk tutup
           </span>
         </div>
       </div>

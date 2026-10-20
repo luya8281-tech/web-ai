@@ -1,0 +1,276 @@
+/**
+ * Klien browser-agent untuk ai-chat.
+ *
+ * ai-chat mengirim perintah ke daemon `browser-agent` (Playwright + Chrome asli)
+ * lewat HTTP lokal. Daemon inilah yang menjaga sesi browser tetap hidup antar
+ * pesan chat, sehingga login/cookie tidak hilang di tengah alur multi-langkah.
+ *
+ * Modul ini sengaja memakai `fs` + `fetch` saja (tanpa impor Playwright) agar
+ * tidak membebani bundler Next.js.
+ */
+
+import * as fs from 'fs';
+
+const CONFIG_PATH = '/root/browser-agent/config.json';
+
+interface AgentConfig {
+  port: number;
+  token: string;
+}
+
+let cachedConfig: AgentConfig | null = null;
+
+function readConfig(): AgentConfig | null {
+  if (cachedConfig) return cachedConfig;
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    if (!raw.port || !raw.token) return null;
+    cachedConfig = { port: raw.port, token: raw.token };
+    return cachedConfig;
+  } catch {
+    return null;
+  }
+}
+
+export function isBrowserAgentConfigured(): boolean {
+  return readConfig() !== null;
+}
+
+export interface BrowserAgentResult {
+  ok: boolean;
+  action?: string;
+  error?: string;
+  note?: string;
+  needsApproval?: boolean;
+  url?: string;
+  title?: string;
+  text?: string;
+  elements?: Array<{ ref: string; tag: string; type?: string; label: string; value?: string; checked?: boolean; inFrame?: boolean }>;
+  captcha?: { turnstilePresent?: boolean; turnstileSolved?: boolean; cloudflareFrame?: boolean };
+  screenshotPath?: string | null;
+  screenshotUrl?: string | null;
+  accounts?: Array<{ name: string; url: string; username: string; hasPassword: boolean; email: string }>;
+  tabs?: Array<{ index: number; url: string }>;
+  ms?: number;
+}
+
+/** Panggil daemon browser-agent. Mengembalikan objek hasil (selalu ada nilai). */
+export async function callBrowserAgent(
+  sessionId: string,
+  payload: Record<string, unknown>,
+  timeoutMs = 120000
+): Promise<BrowserAgentResult> {
+  const cfg = readConfig();
+  if (!cfg) {
+    return { ok: false, error: `browser-agent belum dikonfigurasi (${CONFIG_PATH} tidak terbaca).` };
+  }
+  try {
+    const res = await fetch(`http://127.0.0.1:${cfg.port}/act`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-ba-token': cfg.token,
+      },
+      body: JSON.stringify({ session: sessionId, ...payload }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const data = (await res.json()) as BrowserAgentResult;
+    return data;
+  } catch (e: any) {
+    const msg = e?.name === 'TimeoutError' ? `browser-agent tidak merespons dalam ${Math.round(timeoutMs / 1000)}s` : e?.message || String(e);
+    return { ok: false, error: `Gagal menghubungi browser-agent: ${msg}` };
+  }
+}
+
+// --------------------------- Pengurai tag ---------------------------
+
+export interface BrowserCommand {
+  action: string;
+  payload: Record<string, unknown>;
+  describe: string;
+  /** Perintah ini membaca OTP dan wajib disetujui pengguna lebih dulu. */
+  needsApproval?: boolean;
+  /** Perintah ini menulis/mengubah kredensial (dilarang dari chat). */
+  forbidden?: string;
+}
+
+const text = (v: string) => v.trim();
+
+/**
+ * Terjemahkan isi tag `[BROWSER: ...]` menjadi perintah daemon.
+ * Sintaks: `[BROWSER: <aksi> <argumen>]`
+ */
+export function parseBrowserCommand(param: string): BrowserCommand {
+  let raw = text(param || '');
+
+  // Penanda opsional "+layar" (mis. `buka https://x +layar` atau `klik e5 +layar`)
+  // meminta tangkapan layar pada aksi tersebut. Dipakai karena perintah `buka`
+  // tidak punya argumen lain untuk menyatakan hal ini.
+  let screenshot = false;
+  if (/\s\+layar$/i.test(raw)) {
+    screenshot = true;
+    raw = raw.replace(/\s\+layar$/i, '').trim();
+  }
+
+  const m = raw.match(/^([a-zA-Z_]+)\s*([\s\S]*)$/);
+  const cmd = (m?.[1] || '').toLowerCase();
+  const rest = text(m?.[2] || '');
+  const pipe = () => rest.split('|').map((s) => s.trim());
+  const shot = <T extends Record<string, unknown>>(payload: T): T & { screenshot?: boolean } =>
+    screenshot ? { ...payload, screenshot: true } : payload;
+
+  switch (cmd) {
+    case 'buka':
+    case 'open':
+    case 'nav':
+      return { action: 'nav', payload: shot({ url: rest }), describe: `buka ${rest}${screenshot ? ' (+layar)' : ''}` };
+
+    case 'snapshot':
+    case 'snap':
+    case 'status':
+      return { action: 'snap', payload: shot({}), describe: 'ambil status halaman' };
+
+    case 'klik':
+    case 'click': {
+      const target = rest;
+      return { action: 'click', payload: shot({ ref: target }), describe: `klik "${target}"${screenshot ? ' (+layar)' : ''}` };
+    }
+
+    case 'isi':
+    case 'fill': {
+      const [first, ...others] = pipe();
+      const value = others.join('|');
+      const low = first.toLowerCase();
+      if (!first || low === 'teks' || low === 'text' || low === 'kolom') {
+        return { action: 'fill', payload: { kind: 'text', value }, describe: 'isi kolom teks pertama' };
+      }
+      if (low === 'password' || low === 'sandi') {
+        return { action: 'fill', payload: { kind: 'password', value }, describe: 'isi kolom sandi' };
+      }
+      return { action: 'fill', payload: { ref: first, value }, describe: `isi "${first}"` };
+    }
+
+    case 'tekan':
+    case 'press':
+      return { action: 'press', payload: { key: rest || 'Enter' }, describe: `tekan ${rest || 'Enter'}` };
+
+    case 'scroll':
+    case 'gulir':
+      return { action: 'scroll', payload: { dir: rest || 'bawah' }, describe: `gulir ${rest || 'bawah'}` };
+
+    case 'kembali':
+    case 'back':
+      return { action: 'back', payload: {}, describe: 'kembali ke halaman sebelumnya' };
+
+    case 'screenshot':
+    case 'layar':
+    case 'shot':
+      return { action: 'shot', payload: {}, describe: 'ambil tangkapan layar' };
+
+    case 'tunggu':
+    case 'wait':
+      return { action: 'wait', payload: { ms: Number(rest) || 2000 }, describe: `tunggu ${rest || 2000}ms` };
+
+    case 'tab':
+      return { action: 'switch_tab', payload: { index: Number(rest) || 0 }, describe: `pindah ke tab ${rest}` };
+
+    case 'tab_baru':
+      return { action: 'open_tab', payload: { url: rest }, describe: `buka tab baru ${rest}` };
+
+    case 'login':
+      return { action: 'login', payload: { account: rest }, describe: `login dengan akun tersimpan "${rest}"` };
+
+    case 'otp':
+      return { action: 'otp', payload: { account: rest }, describe: `ambil kode OTP dari email "${rest}"`, needsApproval: true };
+
+    case 'vault':
+    case 'akun':
+      return { action: 'vault_list', payload: {}, describe: 'daftar akun tersimpan' };
+
+    case 'reset':
+      return { action: 'reset', payload: {}, describe: 'tutup sesi browser' };
+
+    case 'simpan':
+    case 'tambah_akun':
+      return {
+        action: 'vault_add',
+        payload: {},
+        describe: 'menambah akun ke vault',
+        forbidden:
+          'Menambah akun vault TIDAK boleh lewat chat (agar kata sandi tidak tercatat di riwayat percakapan publik). ' +
+          'Buka menu Vault (ikon kunci di bilah atas aplikasi) untuk mengisi dan menyimpan sandi secara aman terenkripsi.',
+      };
+
+    default:
+      return {
+        action: 'unknown',
+        payload: {},
+        describe: `perintah tidak dikenal "${cmd}"`,
+        forbidden:
+          'Perintah [BROWSER] yang dikenal: buka, snapshot, klik, isi, tekan, scroll, kembali, screenshot, tunggu, tab, tab_baru, login, otp, vault, reset.',
+      };
+  }
+}
+
+/** Ubah hasil daemon menjadi catatan ringkas untuk model. */
+export function formatBrowserResult(cmd: BrowserCommand, res: BrowserAgentResult): string {
+  const label = cmd.forbidden ? 'DITOLAK' : res.needsApproval ? 'MENUNGGU PERSETUJUAN' : res.ok ? 'OK' : 'GAGAL';
+  const head = `[BROWSER ${label}: ${cmd.describe}${res.ms ? ` | ${res.ms}ms` : ''}]`;
+
+  if (cmd.forbidden) return `${head}\nDITOLAK: ${cmd.forbidden}`;
+
+  if (res.needsApproval) {
+    return `${head}\nPERLU PERSETUJUAN PENGGUNA: ambil OTP tidak dijalankan. Tanyakan lebih dulu kepada pengguna apakah boleh membaca email untuk mengambil kode; jalankan [BROWSER: otp ${cmd.payload.account}] lagi setelah pengguna menyetujui.`;
+  }
+
+  if (!res.ok) {
+    let out = `${head}\nError: ${res.error || 'tidak diketahui'}`;
+    if (/tidak dikenal|tidak ditemukan/i.test(res.error || '')) {
+      out += '\nSaran: panggil [BROWSER: snapshot] untuk melihat daftar rujukan elemen yang tersedia.';
+    }
+    return out;
+  }
+
+  const lines: string[] = [head];
+  if (res.note) lines.push(`Catatan: ${res.note}`);
+  if (res.title) lines.push(`Judul: ${res.title}`);
+  if (res.url) lines.push(`URL: ${res.url}`);
+
+  if (res.captcha?.turnstilePresent) {
+    lines.push(
+      res.captcha.turnstileSolved
+        ? 'CAPTCHA: Turnstile terdeteksi dan sudah terpecahkan.'
+        : 'CAPTCHA: Turnstile terdeteksi dan BELUM terpecahkan (kotak centang belum lolos). Coba klik ulang lewat snapshot, atau beri tahu pengguna bahwa situs menolak verifikasi otomatis.'
+    );
+  }
+
+  if (res.accounts) {
+    lines.push('Akun tersimpan di vault:');
+    if (!res.accounts.length) lines.push('  (kosong — tambahkan lewat CLI di server)');
+    for (const a of res.accounts) {
+      lines.push(`  - ${a.name}${a.url ? ` | ${a.url}` : ''}${a.username ? ` | ${a.username}` : ''}${a.email ? ` | email OTP: ${a.email}` : ''}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (res.tabs) {
+    lines.push(`Tab terbuka (${res.tabs.length}):`);
+    res.tabs.forEach((t) => lines.push(`  [${t.index}] ${t.url}`));
+    return lines.join('\n');
+  }
+
+  if (res.elements && res.elements.length) {
+    lines.push('Elemen interaktif (pakai rujukan ini untuk klik/isi):');
+    for (const el of res.elements.slice(0, 45)) {
+      const kind = el.tag + (el.type ? `:${el.type}` : '');
+      const val = el.value ? ` | nilai: "${el.value}"` : '';
+      const chk = el.checked === undefined ? '' : el.checked ? ' | tercentang' : ' | tidak tercentang';
+      lines.push(`  [${el.ref}] ${kind} "${el.label}"${val}${chk}`);
+    }
+  }
+
+  if (res.text) lines.push(`Isi halaman:\n${res.text}`);
+  if (res.screenshotUrl) lines.push(`Tangkapan layar: ${res.screenshotUrl}`);
+
+  return lines.join('\n');
+}
