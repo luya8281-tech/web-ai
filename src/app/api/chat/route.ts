@@ -1,3 +1,4 @@
+import { getClaudePersonaPrompt } from "@/lib/claude-personas";
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser } from '@/lib/auth';
@@ -7,17 +8,66 @@ import { ProviderRepository } from '@/lib/db/repositories/provider-repo';
 import { ProjectRepository } from '@/lib/db/repositories/project-repo';
 import { SettingsRepository } from '@/lib/db/repositories/settings-repo';
 import { MemoryRepository } from '@/lib/db/repositories/memory-repo';
+import { WorkSessionRepository } from '@/lib/db/repositories/work-session-repo';
 import { AIRouter } from '@/lib/ai/router';
 import { ChatMessage, ChatRequest } from '@/lib/ai/provider-interface';
-import { hasToolTags, executeTools, stageMediaTagsInReply } from '@/lib/tools/tool-executor';
+import { hasToolTags, executeTools, stageMediaTagsInReply, searchTokens, findDuplicateSearch } from '@/lib/tools/tool-executor';
+import { buildNativeTools, nativeCallsToTags, shouldSendNativeTools } from '@/lib/tools/native-tools';
+import { getRecentStagedFilesSummary } from '@/lib/tools/file-generator';
 import { parseBrowserCommand } from '@/lib/tools/browser-agent';
-import { cleanMessageContent, parseToolTags } from '@/lib/utils/clean-content';
+import {
+  cleanMessageContent,
+  cleanServerFinalContent,
+  extractInlineMedia,
+  MEDIA_TAG_NAMES,
+  parseToolTags,
+} from '@/lib/utils/clean-content';
+import { buildActionSubject, isActionFailure } from '@/lib/utils/action-display';
+import { getCapabilitySnapshot } from '@/lib/capabilities/registry';
+import {
+  buildEnvironmentCard,
+  buildMcpToolSection,
+  buildSkillSection,
+} from '@/lib/capabilities/prompt';
+import { getCachedMcpTools, isMcpCacheFresh, listAllMcpTools } from '@/lib/mcp/manager';
+import { describeCliBridge } from '@/lib/cli-bridge';
+import { mergeTaskList } from '@/lib/agents/tasks';
+import { convertDsmlToolCalls, stripDsml } from '@/lib/utils/dsml';
+import { reviewAction, shouldReview } from '@/lib/agents/reviewer';
+import type { TaskItem } from '@/types/chat';
 import { persistActiveGen, clearActiveGen, recoverStaleGens } from '@/lib/ai/active-gen-store';
+import { ensureJobsRecovered, listJobsForConversation } from '@/lib/ai/detached-jobs';
 
 import fs from 'fs';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Rute harness OpenCode ("oc/*" via 9router) menambah system prompt sendiri
+ * (~2.7k token) di sisi server. System prompt 50k karakter membuat upstream
+ * gratis sering timeout/balas kosong. Pangkas bagian non-esensial saja:
+ * katalog skill, protokol investigasi panjang, dan catatan pembelajaran.
+ */
+function trimPromptForHarness(prompt: string): string {
+  const dropPatterns = [
+    /Protokol Investigasi Otonom/i,
+    /PEMBELAJARAN KEGAGALAN/i,
+  ];
+  const lines = prompt.split('\n');
+  const kept: string[] = [];
+  let dropping = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^#{1,4}\s/.test(trimmed)) {
+      dropping = dropPatterns.some((p) => p.test(trimmed));
+    }
+    if (!dropping) kept.push(line);
+  }
+  const out = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return out;
+}
+
 export const runtime = 'nodejs';
 
 function resolveAttachmentDataUrl(att: any): string | null {
@@ -88,6 +138,7 @@ const ChatRequestSchema = z.object({
   modelId: z.string(),
   temporary: z.boolean().optional(),
   systemPrompt: z.string().optional(),
+  claudePersona: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   topP: z.number().min(0).max(1).optional(),
   maxTokens: z.number().positive().optional(),
@@ -101,6 +152,9 @@ const ChatRequestSchema = z.object({
   }).optional(),
   searchQuota: z.number().min(10).max(50).optional(),
   activeConnectors: z.array(z.string()).optional(),
+  // Sumber pesan. Bridge WhatsApp/Telegram/Discord mengirim nilainya secara
+  // eksplisit; web tidak mengirim apa pun sehingga dianggap 'web'.
+  channel: z.enum(['web', 'whatsapp', 'telegram', 'discord']).optional(),
 });
 
 // Registry generasi aktif: generasi tetap berjalan & tersimpan ke DB walau klien
@@ -135,6 +189,7 @@ function ensureRecovered(): void {
 
 export async function GET(req: NextRequest) {
   ensureRecovered();
+  ensureJobsRecovered();
   const convId = req.nextUrl.searchParams.get('conversationId') || '';
   const gen = convId ? activeGens.get(convId) : undefined;
   return new Response(
@@ -144,6 +199,7 @@ export async function GET(req: NextRequest) {
       content: gen?.content || '',
       reasoning: gen?.reasoning || '',
       actions: gen?.actions || [],
+      jobs: convId ? listJobsForConversation(convId) : [],
     }),
     {
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
@@ -163,6 +219,7 @@ export async function DELETE(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     ensureRecovered();
+    ensureJobsRecovered();
     const user = getCurrentUser(req);
     const body = await req.json();
     const parsed = ChatRequestSchema.safeParse(body);
@@ -187,10 +244,17 @@ export async function POST(req: NextRequest) {
       attachments = [],
       userLocation,
       searchQuota = 30,
+      channel: incomingChannel,
     } = parsed.data;
 
     let convId = incomingConvId;
     let conversation = convId ? ConversationRepository.getConversation(convId) : null;
+
+    // Kanal resmi dari bridge. Untuk sesi lama yang dibuat sebelum field ini ada,
+    // jatuh ke penanda judul bridge sebagai fallback.
+    const channel: 'web' | 'whatsapp' | 'telegram' | 'discord' =
+      incomingChannel || (/\[whatsapp\]/i.test(conversation?.title || '') ? 'whatsapp' : 'web');
+    const isWhatsApp = channel === 'whatsapp';
 
     // Auto-create conversation if new
     if (!conversation) {
@@ -215,6 +279,16 @@ export async function POST(req: NextRequest) {
       ConversationRepository.touchConversation(convId!);
     }
 
+    // Sesi kerja lintas percakapan: simpan permintaan terakhir sebelum prompt
+    // dibangun agar sesi ini langsung terlihat oleh model di sesi lain.
+    if (!temporary && convId) {
+      try {
+        WorkSessionRepository.touch(user.id, convId, conversation.title || 'Sesi kerja', userContent);
+      } catch (workErr) {
+        console.warn('[WorkSession] Gagal menyegarkan sesi kerja:', workErr);
+      }
+    }
+
     // Determine System Prompt Hierarchy:
     // Priority: conversation.systemPrompt > project.systemPrompt > userSettings.systemPrompt
     let effectiveSystemPrompt = parsed.data.systemPrompt || conversation.systemPrompt || '';
@@ -231,13 +305,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Inject Persona / Gaya Bahasa Resmi Claude (disimpan untuk disuntikkan di akhir prompt)
+    const requestedPersona = parsed.data.claudePersona || (user?.id ? (SettingsRepository.getUserSettings(user.id) as any)?.claudePersona : null);
+    const personaPrompt = getClaudePersonaPrompt(requestedPersona);
+
     // Auto-inject current date and time to fix knowledge cutoff hallucinations
     const currentDateStr = new Intl.DateTimeFormat('id-ID', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
       hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
     }).format(new Date());
 
-    const temporalContext = `\n\n[Waktu Sistem Saat Ini: ${currentDateStr}].\nPERHATIAN KRITIKAL: Tahun ini adalah 2026. Anda WAJIB menyisipkan "2026" dan bulan saat ini ke dalam parameter [CARI_WEB] jika pengguna menanyakan berita, harga saham, kurs, atau update "terbaru/hari ini" (contoh: [CARI_WEB: harga emas hari ini September 2026]). JANGAN PERNAH berasumsi ini tahun 2023-2025.`;
+    const temporalContext = `\n\n[Waktu Server Saat Ini: ${currentDateStr}]. Perlakukan ini sebagai kebenaran waktu; jangan pernah berasumsi tahun lama.
+Aturan query pencarian (berpikir, jangan kaku):
+- JANGAN menempelkan tahun/bulan ke setiap query kebaruan ("harga emas hari ini", "kurs dollar hari ini", "berita terbaru") — mesin pencari sudah menangani kebaruan dan tambahan tahun justru mempersempit hasil.
+- Sertakan tahun/bulan HANYA bila tanpanya query ambigu: acara terjadwal (jadwal pertandingan, konser, rilis versi), penghargaan/peristiwa tahunan, atau ketika pengguna sendiri menyebut tahun.
+- Jika hasil terlihat basi, pertegas dengan bulan/tahun tertentu atau buka sumber bertanggal lewat [BUKA_WEB]; jangan mengulang query yang sama.`;
 
     const isAdmin = user.role === 'admin';
 
@@ -285,7 +367,7 @@ export async function POST(req: NextRequest) {
         igPrompt = `\n\n[PERINTAH /ig]: Tautan Instagram tidak valid ("${rawIgArg}"). Minta pengguna mengirim tautan Reels/Post yang benar (contoh: https://www.instagram.com/reel/XXXX/). JANGAN menjalankan perintah bash apa pun.`;
       } else {
         const igUrl = `https://www.instagram.com/reel/${igShortcode}/`;
-        igPrompt = `\n\n==================================================\n[PERINTAH SLASH /ig — WAJIB DIEKSEKUSI SEKARANG]:\nPengguna mengetik perintah /ig untuk tautan: ${igUrl}\nJANGAN membahas menu pop-up, autocomplete, atau cara memakai perintah. JANGAN memanggil [BUKA_WEB] untuk tautan ini.\nLangkah wajib pada respons ini:\n1. Panggil [BACA_SKILL: ig] lalu ikuti SOP-nya.\n2. Jalankan [RUN_BASH: node /root/ai-chat/scripts/download_instagram.js "${igUrl}"]\n3. Baca JSON hasilnya. Jika "ok":true, panggil [KIRIM_FILE: <path dari JSON> | Video Instagram].\n4. Jika "ok":false, sampaikan error singkat; jangan mengarang hasil.\n==================================================`;
+        igPrompt = `\n\n==================================================\n[PERINTAH SLASH /ig — WAJIB DIEKSEKUSI SEKARANG]:\nPengguna mengetik perintah /ig untuk tautan: ${igUrl}\nJANGAN membahas menu pop-up, autocomplete, atau cara memakai perintah. JANGAN memanggil [BUKA_WEB] untuk tautan ini.\nLangkah wajib pada respons ini:\n1. Panggil [BACA_SKILL: ig] lalu ikuti SOP-nya.\n2. Jalankan [RUN_BASH: node /root/ai-chat/scripts/download_instagram.js "${igUrl}"]\n3. Baca JSON hasilnya. Jika "ok":true, panggil [KIRIM_FILE: <path dari JSON> | Video Instagram] pada respons pertama (carousel berlagu otomatis keluar sebagai video MP4 slideshow bersuara).\n4. Jika "ok":false, sampaikan error singkat; jangan mengarang hasil.\n==================================================`;
       }
     }
 
@@ -334,6 +416,7 @@ export async function POST(req: NextRequest) {
       const { getAvailableSkillsCatalog } = await import('@/lib/tools/tool-executor');
       const skillsList = getAvailableSkillsCatalog();
       const skillsText = skillsList.length > 0 ? skillsList.join('\n') : '  - Tidak ada skill eksternal.';
+      const recentStagedFiles = getRecentStagedFilesSummary(10);
 
       // Comprehensive Executive AI Automation Tools & Environment Prompt for Admin (Vee)
       const toolInstructions = `
@@ -341,6 +424,22 @@ export async function POST(req: NextRequest) {
 # AI AUTOMATION SYSTEM & SERVER CAPABILITIES (ANTIGRAVITY WEB AI)
 Anda adalah Asisten AI Utama berintegritas tinggi dengan kapabilitas otomasi penuh di server Linux Ubuntu.
 Pengguna utama Anda adalah **Vee** (pemilik & pengembang sistem).
+
+## 0. KESADARAN DIRI, ARSITEKTUR RUNTIME INTERNAL, & BERKAS STAGING AKTIF
+Anda TIDAK buta terhadap lingkungan Anda sendiri. Ketahui fakta arsitektur tempat Anda berjalan saat ini:
+- **Aplikasi Web Utama:** \`/root/ai-chat\` (Next.js 14 App Router, Port \`3010\`, PM2: \`ai-chat\`, Domain: \`https://vee2.my.id\`).
+- **Database Utama:** \`/root/ai-chat/data/chat.db\` (SQLite WAL mode, tabel \`conversations\`, \`messages\`, \`memories\`, \`work_sessions\`).
+- **Konteks Sesi Saat Ini:** \`conversationId=${convId}\` | \`model=${providerId}/${modelId}\` | \`browserSession=${convId}\`.
+- **Alur Route Chat & Rendering Kartu Media (\`src/app/api/chat/route.ts\` -> \`src/components/chat/message-item.tsx\`):**
+  1. Selama balasan Anda memuat tag tool eksekusi (\`[RUN_BASH: ...]\`, \`[BROWSER: ...]\`, \`[BUKA_WEB: ...]\`, \`[CARI_WEB: ...]\`, dll.), server mengeksekusi tool tersebut, menyimpan teks pengantar ke kartu aksi (\`action.textBefore\`), me-reset buffer teks sementara (\`event: reset\`), lalu memberikan \`[TOOL RESULTS]\` untuk putaran berikutnya.
+  2. Teks dari putaran terakhir (setelah semua tool selesai) disimpan ke \`messages.content\` di SQLite dan dirender oleh \`MessageItem\`.
+  3. Di sisi UI pengguna (\`MessageItem\`), fungsi \`extractInlineMedia(message.content)\` membaca tag \`[KIRIM_FILE: /path/lengkap/berkas.ext | Judul]\` (atau \`KIRIM_AUDIO\`, \`KIRIM_VIDEO\`, \`KIRIM_GAMBAR\`, \`KIRIM_DOKUMEN\`) untuk merender kartu pemutar interaktif \`<UniversalFileCard>\` (pemutar \`<audio controls>\`, \`<video controls>\`, pratinjau gambar, dan tombol Unduh 1-Klik via \`/api/browser-shots/<nama_berkas>\`), lalu \`cleanMessageContent()\` menyembunyikan teks tag mentahnya dari paragraf Markdown.
+  4. **ATURAN ANTI-HALU PENGIRIMAN BERKAS:**
+     - **JANGAN PERNAH** mengarang alasan teknis palsu seperti *"pesan saya terpotong saat memanggil tool internal sebelum tag pengiriman dicetak"*.
+     - **DILARANG KERAS** menulis catatan telemetri internal seperti \`[FAKTA UI & AKSI PESAN INI: ...]\` di dalam balasan kepada pengguna.
+     - Jika berkas yang ingin dikirim **SUDAH ADA** di daftar \`[BERKAS STAGING TERBARU DI SERVER]\` di bawah, **JANGAN memanggil \`[RUN_BASH]\` lagi** (tidak perlu \`ls\`, \`find\`, \`cp\`, atau \`grep\`)! Langsung tulis balasan akhir Anda beserta tag \`[KIRIM_FILE: /root/ai-chat/uploads/shared/<nama_file> | Judul]\` pada baris tersendiri.
+- **[BERKAS STAGING TERBARU DI SERVER (/root/ai-chat/uploads/shared) — SIAP KIRIM LANGSUNG]:**
+${recentStagedFiles}
 
 ## 1. PETA LINGKUNGAN SERVER & KAPABILITAS BROWSER GOOGLE CHROME
 - **Google Chrome Headless Asli:** Terpasang aktif di server pada \`/usr/bin/google-chrome\` (didukung Playwright Chromium).
@@ -355,10 +454,47 @@ ${skillsText}
 - **Cara Membaca SOP Panjang (berhalaman):** Hasil \`[BACA_SKILL]\` selalu diawali penanda \`bagian 1/N\`. Jika N > 1, WAJIB lanjutkan dengan \`[BACA_SKILL: nama_skill 2]\`, lalu \`3\`, dan seterusnya sampai muncul penanda \`[SKILL SELESAI]\`. JANGAN berhenti di bagian pertama dan jangan mengarang isi bagian yang belum dibaca.
 - **Instalasi Skill Baru:** Jika diminta membuat atau menginstal skill baru, gunakan \`[INSTALL_SKILL: nama_skill | isi_markdown_sop]\`. Sistem akan otomatis menyimpannya ke \`/root/ai-chat/skills/\` dan mendaftarkannya secara permanen.
 
+## 2b. ARSITEKTUR MCP SERVER, TOKEN ENV, & UTILITAS AKTIF
+- **MCP nyata, bukan sekadar klaim:** server MCP terpasang di \`/root/.config/mcp/config.json\` dan \`/root/.gemini/config/mcp_config.json\`. Hanya server yang benar-benar tersambung (lihat KARTU LINGKUNGAN di akhir prompt) yang boleh dipanggil, dengan format \`[MCP: server.tool | {"arg":"nilai"}]\`. JANGAN mengarang nama server atau tool MCP yang tidak tercantum di kartu. Database SQLite utama berada di \`/root/ai-chat/data/chat.db\` (symlink \`/root/mcp-servers/local.db\`).
+- **Semua Kredensial & Jaringan Stealth Ada di ENV:** Seluruh kunci API (\`TAVILY_API_KEY\`, \`BRAVE_API_KEY\`, \`SCRAPERAPI_KEY\`, \`ZENROWS_API_KEY\`, \`GITHUB_TOKEN\`, \`DECODO_API_KEY\`, \`CAPMONSTER_API_KEY\`, \`CAPSOLVER_API_KEY\`) dan proxy Cloudflare WARP (\`WARP_PROXY="socks5://127.0.0.1:40000"\`) sudah tersedia di server (\`.bashrc\`, \`.env.local\`, \`.api_keys.env\`). Seluruh akses browser otomasi otomatis terlindungi pool IP Cloudflare edge via WARP proxy untuk bypass bot protection dan Turnstile tanpa IP datacenter ban. DILARANG meminta token kepada pengguna dan DILARANG meng-hardcode kunci API.
+- **Utilitas Server:**
+  * TikTok Engine: \`node /root/ai-chat/scripts/download_tiktok.js "<url>"\` (mendukung video MP4 & photo mode slideshow dengan musik latar utuh; media tersimpan di \`/root/ai-chat/uploads/shared/\`).
+  * Instagram Engine: \`node /root/ai-chat/scripts/download_instagram.js "<url>"\` (mendukung video MP4 & carousel/foto berlagu auto-merge slideshow bersuara via FFmpeg; default --merge-audio aktif; media tersimpan di \`/root/ai-chat/uploads/shared/\`).
+    - **ATURAN MUTLAK KONTEN INSTAGRAM & AUDIO (ANTI-NGEYEL):**
+      1. Carousel berlagu dan foto bersuara **WAJIB KELUAR SEBAGAI VIDEO MP4 (SLIDESHOW) BERSUARA**, BUKAN galeri foto statis.
+      2. DILARANG KERAS berargumen atau membantah pengguna bahwa "postingan tidak memiliki musik / audio bawaan tidak ada" hanya karena output scraping publik bertuliskan has_audio: false! Akses scraping publik Instagram tanpa login memang menyembunyikan stream audio CDN Meta.
+      3. Jika pengguna menyatakan postingan memiliki lagu (misal: "ada musiknya", atau menyebut judul lagunya), ATAU jika ada judul lagu terdeteksi:
+         LANGSUNG jalankan:
+         \`node /root/ai-chat/scripts/download_instagram.js "<url>" --audio-query "<judul lagu>"\`
+         atau unduh audionya via:
+         \`yt-dlp "ytsearch1:<judul lagu>" -x --audio-format m4a -o /tmp/ig_audio.m4a\`
+         lalu gabungkan slide foto dengan audio via FFmpeg menjadi MP4 slideshow bersuara (-movflags +faststart).
+      4. WAJIB sertakan tag \`[KIRIM_FILE: /root/ai-chat/uploads/shared/<file> | Judul]\` pada balasan pertama agar pemutar video/kartu langsung tampil di layar pengguna. Dilarang hanya mengetik teks konfirmasi tanpa tag \`[KIRIM_FILE]\`.
+  * Web Search: \`node /root/ai-chat/scripts/web_search.js "<query>"\`.
+  * Google Chrome Headless: \`node /root/ai-chat/scripts/chrome_browser.js "<url>"\`.
+  * Subtitle Whisper: \`/root/getsub/getsub.sh "<url>"\`.
+  * Jembatan WhatsApp / Sosmed: \`/root/ai-chat-bridge/\` (PM2: \`ai-chat-bridge\`).
+    - **PROTOKOL WHATSAPP BRIDGE (ANTI-SPAM KODE & TEKS PANJANG):**
+      ${isWhatsApp ? 'SESI INI BERASAL DARI WHATSAPP.' : 'Jika percakapan berasal dari WhatsApp (kanal whatsapp):'}
+      1. DILARANG KERAS menampilkan blok kode markdown (\`\`\`...\`\`\`), baris perintah terminal (node, python, bash, ffmpeg), atau objek JSON mentah (\`{"ok":...}\`) saat melayani permintaan unduhan media (Instagram, TikTok, YouTube). Jalankan skrip di latar belakang secara hening.
+      2. Saat unduhan selesai, LANGSUNG berikan tag \`[KIRIM_FILE: /root/ai-chat/uploads/shared/<file> | Judul]\`.
+      3. JANGAN MENULIS TEKS PANJANG, rincian teknis (resolusi, bitrate, codec, parameter FFmpeg), atau kutipan panjang teks poster di chat WhatsApp. Balasan teks harus sangat singkat (maksimal 1 kalimat ramah) atau kosongkan saja agar file media langsung terkirim bersih ke WhatsApp tanpa spam teks.
+  * JANGAN PERNAH mengecek ke direktori lama atau phantom (seperti wa-bot lama).
+
+## 2c. PETA RUTE UTILITAS — PERIKSA INI DULU SEBELUM MENGARANG CARA SENDIRI
+Sebagian besar tugas di server ini SUDAH punya alat resminya. Cocokkan tugas dengan peta ini sebelum menulis skrip atau menyimpulkan sesuatu tidak bisa:
+- Subtitle/transkrip video (TikTok, YouTube, dll.) -> [AMBIL_SUBTITEL: url]. Alat ini mentranskrip lokal dengan Whisper dan TIDAK butuh cookie/login; dilarang menyimpulkan gagal karena cookie.
+- Unduh video/foto TikTok atau Instagram -> pakai TikTok Engine / Instagram Engine di seksi 2b dan skill ig; jangan merakit ulang yt-dlp/ffmpeg dari nol.
+- Membaca halaman yang memblokir (Cloudflare, 403, challenge) -> [AMBIL_HALAMAN: url]. Interaksi/login/klik -> [BROWSER] (patuhi ATURAN KEMUDI ALAT di seksi 3b). Dilarang menulis skrip scraping/solver browser sendiri — termasuk pola dari skill playwright-scraping-ninja; skill itu referensi baca saja, bukan jalur eksekusi.
+- Soal tunnel/API/VM Muse (port 2222 dan 5005, API 502, "VM mati") -> WAJIB [BACA_SKILL: muse-vm-ops] sebelum menyimpulkan apa pun. Dilarang menyatakan tunnel tidak persisten atau mati permanen tanpa memeriksa fakta pemulihan otomatisnya.
+- Mengetahui utilitas/file/kemampuan apa saja yang ada di server -> [BACA_SKILL: muse-utilities] (peta lengkap di /root/muse-utilities-20261018/INVENTARIS.md). Dilarang mengarang bahwa sesuatu tidak tersedia sebelum memeriksa peta ini.
+- Kesehatan server, PM2, disk, log -> [BACA_SKILL: linux-server-ops].
+- Deploy/restart ai-chat -> npm run deploy (berjalan detached otomatis). Dilarang npm run build langsung; sistem menolaknya.
+
 ## 3. DAFTAR ALAT OTOMASI LENGKAP:
 1. \`[BUKA_WEB: url]\` -> Buka halaman web via browser Google Chrome asli (Playwright) dan baca isinya secara utuh. Gunakan ini jika ringkasan dari hasil pencarian terpotong atau kosong.
 2. \`[SCREENSHOT_WEB: url]\` -> Buka halaman web dan ambil tangkapan layar antarmuka via Google Chrome.
-3. \`[CARI_WEB: query]\` -> Mencari info di internet via search engine. **PENTING: \`query\` WAJIB berupa 2-4 kata kunci singkat (contoh: "hasil final indonesia thailand", bukan kalimat lengkap "berapa skor hasil final indonesia thailand").**
+3. \`[CARI_WEB: query]\` -> Mencari info di internet via search engine. **PENTING: \`query\` WAJIB berupa 2-4 kata kunci singkat (contoh: "hasil final indonesia thailand", bukan kalimat lengkap "berapa skor hasil final indonesia thailand").** **DEFAULT: SATU query.** Tambahkan query kedua HANYA bila objek yang dicari benar-benar DUA hal berbeda (mis. harga emas DAN kurs dollar). MAKSIMAL 2 tag CARI_WEB per giliran — lebih dari itu akan dipotong server. DILARANG menduplikasi atau memparafrase query yang sama, dan DILARANG menulis 3 query sekaligus hanya untuk satu kebutuhan sederhana. Tulis tiap tag di baris sendiri. JANGAN mengulang atau memparafrase query yang sudah dijalankan pada giliran sebelumnya dalam percakapan ini — pakai hasil yang sudah ada, atau ubah sudutnya secara material (entitas/angka/tahun berbeda).
 4. \`[CEK_CUACA: lat,lon | nama kota]\` -> Cek cuaca real-time via Open-Meteo (tanpa API key). Contoh: \`[CEK_CUACA: -6.2, 106.8]\` (dari GPS) atau \`[CEK_CUACA: Jakarta]\`. WAJIB dipakai untuk semua pertanyaan cuaca, JANGAN mengarang.
 4. \`[RUN_BASH: command]\` -> Eksekusi perintah Linux Bash di server VPS (pm2, curl, git, df, free, dll).
 5. \`[CEK_KESEHATAN_PROYEK: target_dir]\` -> **PRE-FLIGHT DIAGNOSTIK KESEHATAN PROYEK:** Audit git status, cek apakah ada proses build yang sedang aktif menumpuk, cek port listener bentrok, dan cek sisa RAM/Disk sebelum menjalankan otomasi proyek.
@@ -367,20 +503,49 @@ ${skillsText}
 8. \`[RUN_PYTHON: code]\` -> Menjalankan skrip Python di server (analisis data, perhitungan, otomatisasi).
 9. \`[SIMPAN_MEMORI: kategori | fakta]\` -> Simpan fakta jangka panjang tentang pengguna ke memori akun ini (otomatis, lintas percakapan).
 9b. \`[CATAT_PELAJARAN: masalah_atau_kegagalan | solusi_terbukti]\` -> **BELAJAR DARI KESALAHAN:** Simpan catatan kegagalan & solusi otomasi proyek ke memori permanen agar AI tidak mengulangi kesalahan yang sama pada tugas berulang.
+9c. \`[BACA_SESI_KERJA: kata_kunci_opsional]\` -> Baca memori kerja lintas sesi: tugas yang belum selesai, ringkasan, langkah berikutnya, dan transkrip terakhir dari percakapan lain. Tanpa parameter = baca semua sesi aktif.
 10. \`[RINGKAS_YOUTUBE: url]\` -> Ambil metadata dan transkrip video YouTube.
 11. \`[BACA_OCR: path]\` -> Scan teks dari gambar menggunakan OCR.
 12. \`[BUAT_PDF: isi_atau_html | nama_file.pdf]\` -> Render dokumen PDF berstandar A4 asli.
 13. \`[AMBIL_SUBTITEL: url]\` -> Ambil subtitel/teks transkrip video (TikTok, YouTube, dan situs video lain) via transkripsi lokal Whisper di server.
     - **WAJIB IZIN DULU:** JANGAN panggil tag ini atas inisiatif sendiri. Tanyakan lebih dulu apakah pengguna pemilik video atau berhak/berizin atasnya (bukan konten pihak lain tanpa izin). Tag ini hanya akan berjalan pada giliran setelah pengguna menjawab setuju.
+13b. \`[AMBIL_HALAMAN: url]\` -> Baca isi halaman web yang dilindungi Cloudflare/anti-bot (mis. tikvib.com) TANPA browser, via ekstraksi server (fetch langsung -> WARP -> Jina Reader). Pakai tag ini bila [BUKA_WEB] hanya mengembalikan halaman verifikasi/challenge, atau untuk situs yang dikenal memblokir IP/browser server. Hanya membaca teks halaman publik — tidak bisa klik, login, atau mengambil screenshot.
 14. \`[BUAT_FILE: nama_file.ext | isi_file]\` -> **PEMBUAT BERKAS UNIVERSAL:** Buat berkas baru apa saja (.xlsx, .docx, .lua, .txt, .csv, .py, .pdf, .json, .sh, .sql, dll) langsung ke server dan otomatis kirim kartu unduhan interaktif ke pengguna.
     - Untuk spreadsheet (.xlsx): berikan data dalam tabel Markdown (\`| Kolom 1 | Kolom 2 |\`) atau CSV/JSON. Sistem otomatis membuatnya jadi berkas Microsoft Excel (.xlsx) asli dengan header styling dan border!
     - Untuk Microsoft Word (.docx): berikan format Markdown (\`# Judul\`, \`- Poin\`, \`| Tabel |\`). Sistem otomatis membuatnya jadi berkas Word (.docx) resmi!
     - Untuk script Lua/Python/Bash: tulis kodenya, berkas langsung siap diunduh pengguna.
-15. \`[KIRIM_FILE: /path/ke/file | Keterangan/Judul]\` -> Kirim berkas apa pun yang sudah ada di server (mis. hasil bash/python/ffmpeg di /root, /tmp, dll) langsung ke ruang obrolan pengguna.
+15. \`[KIRIM_FILE: /path/ke/file | Keterangan/Judul]\` -> Kirim berkas apa pun yang sudah ada di server (mis. hasil bash/python/ffmpeg di /root, /tmp, dll) langsung ke ruang obrolan pengguna (Web, WhatsApp, Discord, Telegram).
+16. \`[BACA_FILE: /path/ke/file | baris_awal-baris_akhir]\` -> Membaca isi berkas kode/konfigurasi di server secara utuh dengan nomor baris (contoh: \`[BACA_FILE: /root/ai-chat-bridge/adapters/discord-music.js | 550-650]\`). Gunakan ini saat menginspeksi kode daripada \`cat\`/\`sed\` via bash.
+17. \`[EDIT_FILE: /path/ke/file | blok_kode_lama ||| blok_kode_baru]\` -> Mengedit blok kode di berkas server secara presisi tanpa masalah escaping tanda kutip shell/bash. Pisahkan path dengan \`|\` dan pisahkan kode lama dengan kode baru memakai \`|||\`.
 
 Gunakan alat-alat di atas secara proaktif. Cukup tuliskan tag alat tersebut di balasan Anda, dan sistem otomatis akan menjalankannya secara ReAct multi-hop loop. JANGAN menjelaskan bahwa Anda akan menggunakan alat, langsung panggil tag-nya! DILARANG MENGARANG SKOR ATAU BERITA JIKA RINGKASAN KOSONG, GUNAKAN [BUKA_WEB]!
 
+## 3a. DISIPLIN TOOL (WAJIB) — ANTI "BERTELE-TELE"
+1. **Hingga 100 pemanggilan tool per permintaan.** Sistem memberi Anda 100 langkah tool. Gunakan seperlunya, gabungkan perintah sejenis, dan teruskan sampai tugas benar-benar selesai atau data sudah cukup. Jangan berhenti hanya karena sudah beberapa langkah.
+2. **GABUNGKAN pemeriksaan.** Satu tag \`[RUN_BASH: cmd1 && cmd2 && cmd3]\` jauh lebih baik daripada tiga tag terpisah. Jangan menjelajah file satu per satu.
+3. **JANGAN mengulang perintah yang identik** — hasil sebelumnya sudah ada di konteks dan sistem akan menandainya sebagai duplikat.
+4. **Skill yang sudah terbaca tidak perlu dibaca ulang** (isinya masih ada di konteks).
+5. Setelah data yang dibutuhkan sudah ada, **LANGSUNG tulis jawaban final**. Jangan menulis "saya cek lagi" lalu memanggil tool lagi.
+6. Kalau data belum cukup, tutup dengan ringkasan + daftar yang belum terverifikasi. **Jawaban final 5-10 baris lebih berharga daripada eksplorasi tanpa akhir.**
+7. Nyatakan rencana singkat di awal (maksimal 3 baris), lalu eksekusi berurutan. Jangan mengulang langkah yang sama dengan alasan berbeda.
+8. **JANGAN menulis jawaban/penjelasan umum sebelum tag tool.** Saat akan memakai tool, tulis HANYA tag aksinya (boleh satu kalimat singkat, maksimal 1 baris). Teks sebelum tag otomatis dipindahkan ke kartu aksi, BUKAN jawaban final.
+9. **Setelah hasil tool masuk, tulis SATU jawaban final** yang memuat hasilnya. JANGAN mengulang pengetahuan umum yang sudah ditulis sebelum tool, jangan menyalin ulang seluruh output tool, dan jangan memberi dua jawaban terpisah.
+10. **Proyek ai-chat:** JANGAN pernah menjalankan \`npm run build\` atau \`next build\` langsung di \`/root/ai-chat\` — itu menimpa \`.next\` produksi dan membuat web 502. Selalu gunakan \`npm run deploy\` (build ke \`.next.new\`, lalu tukar dengan aman).
+
+## 3a-1. MEMORI KERJA LINTAS SESI (HANYA SAAT DIMINTA)
+- Setiap percakapan memiliki **sesi kerja** yang mencatat tugas, status, ringkasan, dan langkah berikutnya. Daftar sesi TIDAK disuntikkan otomatis ke prompt; jangan membuka atau menyebut sesi lain kecuali pengguna meminta secara eksplisit.
+- Jika pengguna meminta melanjutkan pekerjaan sebelumnya, bertanya "tadi sampai mana", atau memulai sesi/model baru untuk tugas yang sama, **WAJIB panggil \`[BACA_SESI_KERJA]\` lebih dulu** (boleh dengan kata kunci judul/topik).
+- JANGAN membuka, merangkum, atau menyinggung sesi sebelumnya pada jawaban biasa yang tidak berkaitan. Fokus pada percakapan saat ini.
+- Setelah menyelesaikan tahap penting, atau jika pekerjaan belum tuntas, catat dengan tag pada **baris tersendiri**:
+  \`[CATAT_TUGAS: judul_singkat | status | ringkasan_hasil | langkah_berikutnya]\`
+  Status yang valid: \`aktif\`, \`tertunda\`, \`selesai\`, \`batal\`.
+- Jika tugas benar-benar selesai, tulis \`[SELESAI_TUGAS: judul_singkat]\` pada baris tersendiri.
+- PERBARUI tag tugas setiap tahap berubah (mulai → aktif, selesai → selesai) agar papan tugas live pengguna akurat. Gunakan judul yang konsisten (judul sama = tugas yang sama).
+- Jangan pernah menyimpan rahasia (kata sandi, token, kunci API, OTP) ke memori kerja. Cukup catat status pekerjaan dan lokasi aman konfigurasinya.
+
 ## 3b. OTOMASI BROWSER INTERAKTIF (TAG \`[BROWSER]\`) — KHUSUS ADMIN
+- **JANGAN MENYERAH PADA TURNSTILE.** Jika halaman menampilkan tantangan Cloudflare, ulangi dengan \`[BROWSER: buka <url> +zenrows]\` (ZenRows CDP, menyelesaikan Turnstile) atau \`+cdp\`. Sistem juga menaikkan tahap proxy otomatis.
+- Pengecualian: bila halaman menampilkan pesan **"Turnstile gagal dimuat"** atau kode **110200/invalid sitekey**, itu situsnya salah konfigurasi — laporkan apa adanya (sitekey tidak valid), jangan mengulang terus.
 \`[BUKA_WEB]\` hanya MEMBACA halaman. Untuk klik, mengisi formulir, dan login, Anda punya sesi browser penuh (Chrome asli + Playwright) yang hidup terus selama percakapan, sehingga cookie dan status login tidak hilang di tengah alur.
 
 Sintaks: \`[BROWSER: aksi argumen]\` — SATU perintah per balasan.
@@ -392,9 +557,32 @@ Sintaks: \`[BROWSER: aksi argumen]\` — SATU perintah per balasan.
 - \`[BROWSER: screenshot]\` → tangkapan layar (tautannya bisa Anda berikan ke pengguna). Untuk minta tangkapan layar sekaligus, tambahkan \`+layar\` di akhir perintah \`buka\`/\`klik\`/\`snapshot\`, contoh \`[BROWSER: buka https://situs +layar]\`.
 - \`[BROWSER: tab 1]\` · \`[BROWSER: tab_baru https://...]\` → kelola tab
 - \`[BROWSER: vault]\` → daftar akun login tersimpan
+- \`[BROWSER: profil]\` → daftar profil browser persisten (cookie/login tersimpan)
+- Profil Chrome default sudah **otomatis** memakai \`google_aionly\` yang sudah login sebagai \`aionly771@gmail.com\` (bukan tamu); sesi chat baru tidak perlu menjalankan perintah profil lagi. Bila perlu memastikan, buka \`https://myaccount.google.com/\` dan cek nama \`ai only\`.
+- \`[BROWSER: profil google_aionly]\` → paksa sesi ini memakai profil **Google khusus agen** (hanya bila profil default sempat diganti ke profil lain). Hanya satu sesi dapat memakai profil ini pada satu waktu; sesi yang lebih baru otomatis mengambil alih.
+- \`[BROWSER: chrome signin google_aionly]\` → login **Chrome** (bukan hanya web Google) memakai akun vault, sehingga Chrome punya profil/akun pribadi dan sinkronisasi. Jalankan hanya sekali; jangan diulang-ulang.
 - \`[BROWSER: login nama_akun]\` → login otomatis memakai akun tersimpan di vault
 - \`[BROWSER: otp nama_email]\` → ambil kode OTP dari email (WAJIB disetujui pengguna lebih dulu)
 - \`[BROWSER: reset]\` → tutup sesi browser
+
+ATURAN KEMUDI ALAT — WAJIB DIPATUHI SEBELUM MEMILIH ALAT:
+1. Untuk tugas web apa pun yang butuh INTERAKSI (membuka halaman login, mengklik, mengisi formulir, menghadapi Turnstile/CAPTCHA), gunakan HANYA tag [BROWSER]. DILARANG KERAS menulis skrip otomasi browser sendiri (Playwright, Puppeteer, Selenium, Python, atau Node) lewat [RUN_BASH] atau [RUN_PYTHON] — sistem akan menolak perintah semacam itu.
+2. Token Turnstile/CAPTCHA TIDAK PERNAH bisa diambil dari membaca HTML/DOM halaman atau frame. Jangan membuang waktu mendump HTML untuk mencari token. Widget hanya bisa lolos lewat interaksi sesi browser resmi pada tag [BROWSER].
+3. Jika [BROWSER] pun gagal karena situs memblokir IP server (halaman challenge penuh yang berputar terus), JANGAN beralih membuat skrip solver sendiri. Untuk membaca isi halaman gunakan [AMBIL_HALAMAN]; untuk interaksi yang tetap mustahil, laporkan keterbatasannya secara jujur kepada pengguna.
+4. Jika halaman/hasil alat menampilkan teks error proxy (mis. 'client_connect_invalid_ip', 'Proxy CONNECT ditolak', '407 Proxy Authentication'), itu PENOLAKAN OLEH PROXY di jalur keluar sesi — BUKAN penolakan backend/whitelist situs tujuan. Laporkan apa adanya sebagai kegagalan jalur proxy; jangan mengarang penjelasan tentang filter backend, whitelist IP aplikasi, atau header yang tidak cocok.
+
+ATURAN BUKTI PENGIRIMAN — TEKS SAJA TIDAK MENGIRIM APA-APA:
+1. Frasa seperti "ini dia", "saya kirim sekarang", "berikut filenya/kartunya/tangkapan layarnya", "sudah saya putar/kirim" DILARANG ditulis tanpa tag pengiriman yang sesuai dalam balasan yang sama. Berkas apa pun (termasuk audio MP3 dan video) hanya terkirim ke layar pengguna bila balasan mengandung tag [KIRIM_FILE: /path/lengkap/file | Judul] (atau KIRIM_AUDIO/KIRIM_VIDEO/KIRIM_GAMBAR/KIRIM_DOKUMEN yang sesuai). Tanpa tag itu, yang sampai ke pengguna HANYA TEKS — kartu pemutar/kartu unduhan tidak akan muncul, apa pun yang kamu tulis.
+2. Sebelum mengklaim berkas "sudah ada" atau "sudah jadi", verifikasi dengan output ls/stat asli: nama persis, ukuran, dan waktu. Jangan mengarang ukuran/waktu dari ingatan.
+3. PROTOKOL KOREKSI — bila pengguna berkata tidak ada yang sampai ("hanya ada teks saja", "tidak ada kartu/file-nya di interface", atau mengirim screenshot bukti), PERCAYA pengguna. Jangan membela klaim lama dan jangan mengulang klaim pengiriman dengan kata-kata saja. Periksa balasanmu sebelumnya: bila tidak mengandung tag pengiriman, akui terus terang ("maaf, tadi hanya teks, tag-nya tidak ikut terkirim") lalu kirim ulang DENGAN tag yang benar. Mengulang klaim tanpa tag setelah dikoreksi adalah pelanggaran aturan ini.
+4. Jangan mengklaim audio/video sedang diputar untuk pengguna kecuali ada konfirmasi pemutaran di sesi pengguna. Pemutaran di browser server bukan telinga pengguna. Deskripsi tangkapan layar bukan pengiriman tangkapan layar — aturan tag yang sama berlaku.
+
+ATURAN LAPORAN PROGRES — TUGAS PANJANG (deploy proyek baru, migrasi, instalasi, impor besar):
+1. Pecah tugas jadi TAHAP-TAHAP, SATU pemanggilan [RUN_BASH]/[RUN_PYTHON] per tahap (mis. git pull -> npm install -> build -> tukar folder -> health check -> smoke test). DILARANG menggabung semua tahap jadi satu perintah raksasa agar tidak ada jeda laporan.
+2. Setelah tiap tahap selesai, tulis LAPORAN SINGKAT 1-2 kalimat SEBELUM lanjut ke tahap berikutnya: nama tahap, hasil (OK/GAGAL), dan ANGKA NYATA dari output alat (detik, ukuran berkas, kode status, jumlah baris/record). Teks yang ditulis di antara tag alat langsung terbaca pengguna secara live — itulah laporan tengah jalannya.
+3. Angka (waktu, ukuran, hitungan) HANYA dari output ls/stat/log/hasil alat yang asli; jangan mengarang dari ingatan.
+4. Bila satu tahap GAGAL: berhenti, laporkan kegagalannya apa adanya (perintah apa, pesan error apa), lalu minta arahan pengguna — jangan diam-diam melompat ke tahap berikutnya.
+5. Setelah semua tahap selesai, kirim LAPORAN SELESAI: ringkasan tiap tahap + hasil verifikasi, dan apa yang perlu dicek pengguna sendiri di sisi mereka.
 
 ATURAN WAJIB PEMAKAIAN:
 1. **Alur baku:** \`buka\` → \`snapshot\` → lakukan SATU klik/isi → baca snapshot baru → ulangi. Rujukan elemen (e1, e2, …) BERUBAH setiap kali halaman berubah, jadi JANGAN menebak; selalu pakai rujukan dari snapshot terakhir. Sistem hanya menjalankan perintah \`[BROWSER]\` pertama di tiap balasan.
@@ -424,7 +612,7 @@ ATURAN WAJIB PEMAKAIAN:
 
       let externalSystemMd = '';
       try {
-        const sysMdPath = '/root/wa-bot/SYSTEM.md';
+        const sysMdPath = '/root/ai-chat/SYSTEM.md';
         if (fs.existsSync(sysMdPath)) {
           externalSystemMd = '\n\n' + fs.readFileSync(sysMdPath, 'utf8');
         }
@@ -456,7 +644,7 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
     const webAiPromptNotice = `\n\n[CATATAN FORMAT WEB AI & FITUR INTERAKTIF]:
 1. Anda beroperasi melalui Web AI Interface modern. Tampilkan balasan Anda langsung sebagai Markdown yang rapi dan bersih. JANGAN PERNAH membungkus balasan dengan tag [BALASAN_AKHIR] atau [/BALASAN_AKHIR].
 2. SITASI & SUMBER INTERAKTIF (TANPA LINK HARDCODE): Antarmuka web secara otomatis menampilkan kartu Logo/Favicon Sumber interaktif yang bisa diklik pengguna dari hasil [CARI_WEB] dan [BUKA_WEB]. JANGAN menulis daftar URL mentah panjang (seperti "https://...") secara hardcode di dalam paragraf atau di akhir pesan. Jika ingin merujuk sumber di dalam kalimat, gunakan tautan Markdown singkat \`[Nama Situs](https://...)\` (yang otomatis dirender menjadi chip berlogo situs).
-3. KARTU IZIN INTERAKTIF: Jika suatu tindakan memerlukan persetujuan pengguna (seperti akses OTP email, restart layanan kritis, penghapusan data, atau konfirmasi eksekusi), sertakan tag \`[IZIN: Judul Izin | Penjelasan singkat tindakan | Ya, saya izinkan jalankan tindakan tersebut]\` agar muncul kartu persetujuan yang bisa langsung diklik pengguna.
+3. KARTU IZIN INTERAKTIF: Gunakan HANYA bila tindakan benar-benar butuh persetujuan (akses OTP email, restart/deploy layanan kritis, hapus data, biaya, atau tindakan destruktif) DAN belum diizinkan pengguna pada giliran ini. Format: \`[IZIN: Judul singkat | Penjelasan 1 kalimat | Izinkan, lanjutkan]\`. DILARANG memakai [IZIN] untuk pertanyaan retoris, tawaran bantuan, basa-basi, atau sekadar konfirmasi gaya bahasa — itu membuat kartu izin palsu. Maksimal SATU kartu per balasan.
 4. PILIHAN / QUEST INTERAKTIF: Jika Anda menawarkan opsi langkah selanjutnya, alternatif solusi, atau pertanyaan pilihan kepada pengguna, sertakan tag \`[PILIHAN: Opsi Pertama | Opsi Kedua | Opsi Ketiga]\` di bagian paling akhir balasan agar pengguna cukup mengetuk tombol pilihan tanpa perlu mengetik manual.
 5. FITUR PENGIRIMAN & PEMBUATAN BERKAS (UNIVERSAL FILE SENDING):
    - Jika pengguna meminta berkas (apapun jenisnya: .lua, .txt, spreadsheet Excel .xlsx, Word .docx, PDF, CSV, MP3, MP4, Python, JSON, dll):
@@ -465,10 +653,33 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
        - Untuk Word (.docx): sertakan format Markdown di \`isi_file\`. Sistem otomatis menghasilkan dokumen Microsoft Word asli!
        - Untuk script (.lua, .py, .js, .sh, .sql): tuliskan kodenya di \`isi_file\`.
        - Untuk PDF (.pdf): panggil \`[BUAT_PDF: isi_dokumen | nama_dokumen.pdf]\`.
-     * Untuk MENGIRIM BERKAS YANG SUDAH ADA DI SERVER: Panggil tag \`[KIRIM_FILE: /path/ke/file | Judul Berkas]\` (contoh: \`[KIRIM_FILE: /root/wa-bot/media/sent/video.mp4 | Video]\` atau \`[KIRIM_FILE: /tmp/output.xlsx | Laporan Rekapitulasi]\`).
+     * Untuk MENGIRIM BERKAS YANG SUDAH ADA DI SERVER: Panggil tag \`[KIRIM_FILE: /path/ke/file | Judul Berkas]\` (contoh: \`[KIRIM_FILE: /root/ai-chat/uploads/shared/video.mp4 | Video]\` atau \`[KIRIM_FILE: /tmp/output.xlsx | Laporan Rekapitulasi]\`).
    - Di antarmuka web, berkas otomatis ditampilkan dalam Kartu Berkas Interaktif lengkap dengan badge jenis berkas, tombol **Pratinjau Isi**, tombol **Salin Tautan**, dan tombol **Unduh 1-Klik**!
    - Semua berkas yang dibuat atau dikirim dapat diunduh melalui \`/api/browser-shots/<nama_berkas>?download=1\`.
    - **DILARANG KERAS** menggunakan domain mati (\`ai.beritadetik.my.id\` / \`vee2.my.id\`). Selalu gunakan tag \`[BUAT_FILE]\` atau \`[KIRIM_FILE]\` atau tautan relatif \`/api/browser-shots/<nama_berkas>\`.`;
+
+    // Aturan format WhatsApp. Menggantikan catatan Markdown web karena WhatsApp
+    // TIDAK merender heading, tabel, maupun tautan markdown — semuanya akan
+    // terkirim apa adanya sebagai karakter mentah ke layar pengguna.
+    const whatsAppFormatNotice = `\n\n[KANAL SAAT INI: WHATSAPP — WAJIB PAKAI FORMAT WHATSAPP]:
+1. Balasan Anda dibaca di aplikasi WhatsApp, BUKAN di browser. Yang Anda tulis dikirim apa adanya sebagai teks murni.
+2. FORMAT YANG DIDUKUNG WhatsApp, gunakan hanya ini:
+   - Tebal: *teks*  (satu asterisk, BUKAN **teks**)
+   - Miring: _teks_
+   - Coret: ~teks~
+   - Monospace: \`teks\` atau blok dengan tiga backtick
+   - Daftar: tanda "-" atau angka di awal baris
+   - Tautan: tulis URL POHON (\`https://contoh.com\`) agar bisa diklik WhatsApp.
+3. FORMAT YANG TIDAK DIRENDER WhatsApp — DILARANG PAKAI:
+   - Heading Markdown (\`#\`, \`##\`, \`###\`) -> ganti jadi baris tebal *Judul*
+   - Tabel Markdown (\`| Kolom | Kolom |\`) -> ganti jadi daftar baris: "*Nama*: nilai"
+   - Tautan Markdown \`[Teks](https://...)\` -> tulis "Teks: https://..."
+   - Garis horizontal \`---\`, HTML, dan badge gambar.
+4. JANGAN pakai tag \`[IZIN: ...]\` maupun \`[PILIHAN: ...]\`. Keduanya kartu tombol khusus web dan di WhatsApp hanya akan tampil sebagai teks rusak. Kalau butuh persetujuan atau pilihan, tanyakan dengan kalimat biasa: "Balas SETUJU untuk lanjut" atau "Pilih 1, 2, atau 3".
+5. TETAP gunakan tag alat seperti \`[CARI_WEB: ...]\` dan pengiriman berkas \`[KIRIM_FILE: /path | Judul]\` — sistem bridge membacanya dan berkas tetap terkirim ke WhatsApp.
+6. WhatsApp tidak nyaman untuk teks panjang. Tulis ringkas: paragraf pendek, tanpa pengulangan, dan hindari blok kode panjang kecuali pengguna memang memintanya.`;
+
+    const channelFormatNotice = isWhatsApp ? whatsAppFormatNotice : webAiPromptNotice;
 
     let memoryPrompt = '';
     try {
@@ -477,7 +688,15 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
       console.warn('[Memory] Gagal membangun prompt memori:', memErr);
     }
 
-    effectiveSystemPrompt = (effectiveSystemPrompt || 'Anda adalah AI bernama Vee.') + temporalContext + roleSpecificPrompt + memoryPrompt + webAiPromptNotice + urlTriggerPrompt + locationPrompt + igPrompt;
+    // Catatan: daftar sesi kerja TIDAK disuntikkan ke prompt setiap request.
+    // Sesi sebelumnya hanya dibaca lewat tool [BACA_SESI_KERJA] saat pengguna
+    // meminta, supaya sesi baru tidak terus-menerus menyinggung sesi lama.
+    effectiveSystemPrompt = (effectiveSystemPrompt || 'Anda adalah AI bernama Vee.') + temporalContext + roleSpecificPrompt + memoryPrompt + urlTriggerPrompt + locationPrompt + igPrompt;
+
+    // Injeksi Persona / Gaya Bahasa Resmi Claude di bagian paling akhir prompt (recency attention tertinggi)
+    if (personaPrompt) {
+      effectiveSystemPrompt += `\n\n==================================================\n[PANDUAN MUTLAK GAYA BAHASA & TONE OF VOICE — WAJIB DIIKUTI PADA SETIAP BALASAN]:\n${personaPrompt}\n- Terapkan gaya bahasa di atas secara konsisten pada setiap kalimat.\n- JANGAN gunakan pembuka klise generik (seperti "Tentu!", "Tentu saja!", "Halo!", atau "Pilihan yang bagus!"). Langsung ke substansi masalah dengan pembawaan di atas.\n==================================================`;
+    }
 
     // Directif khusus rute OpenCode (provider 'opencode' atau model 'oc/*').
     // Harness OpenCode menyuntikkan tool `read`/`shell` + larangan memakainya,
@@ -486,8 +705,45 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
     // jawaban KOSONG. Directif ini menegaskan agar model langsung menulis teks.
     const isOpenCodeRoute = providerId === 'opencode' || /^oc\//i.test(modelId) || /^opencode\//i.test(modelId);
     if (isOpenCodeRoute) {
-      effectiveSystemPrompt += `\n\n[ATURAN RUTE OPENCODE — WAJIB]: Abaikan tool bawaan bernama \`read\` dan \`shell\`; JANGAN pernah memanggilnya (keduanya placeholder kosong dari harness). Jangan menulis skrip atau merencanakan langkah berkepanjangan. Segera tulis jawaban akhir untuk pengguna sebagai teks biasa. Bila perlu data web, cukup tulis tag [CARI_WEB: kata kunci] DI DALAM teks jawaban (bukan sebagai tool call), lalu tunggu hasilnya. Tulis setiap tag pada BARIS TERSENDIRI — JANGAN menyisipkan tag di dalam tautan atau tanda kurung Markdown (contoh SALAH: [teks]([CARI_WEB: kata kunci])), karena tag di dalam kurung tidak akan dieksekusi.`;
+      effectiveSystemPrompt = trimPromptForHarness(effectiveSystemPrompt);
+      effectiveSystemPrompt += `\n\n[ATURAN RUTE OPENCODE — WAJIB]: Abaikan tool bawaan bernama \`read\` dan \`shell\`; JANGAN pernah memanggilnya (keduanya placeholder kosong dari harness). Jangan menulis skrip atau merencanakan langkah berkepanjangan. Bila perlu data web, cukup tulis tag [CARI_WEB: kata kunci] DI DALAM teks jawaban (bukan sebagai tool call), lalu tunggu hasilnya. Setelah data cukup, segera tulis jawaban akhir untuk pengguna sebagai teks biasa. Tulis setiap tag pada BARIS TERSENDIRI — JANGAN menyisipkan tag di dalam tautan atau tanda kurung Markdown (contoh SALAH: [teks]([CARI_WEB: kata kunci])), karena tag di dalam kurung tidak akan dieksekusi.`;
     }
+
+    // === KARTU LINGKUNGAN & KAPABILITAS NYATA (dirakit dari server, bukan hardcode) ===
+    // Ditempatkan paling akhir agar tahan pemangkasan prompt harness dan menang
+    // recency attention: model tahu persis apa yang benar-benar bisa dipanggil.
+    if (isAdmin) {
+      try {
+        const snapshot = getCapabilitySnapshot();
+        // Jangan pernah menunggu koneksi MCP di jalur balasan: pakai snapshot
+        // terakhir (memori/disk). Bila basi, segarkan di latar belakang.
+        if (!isMcpCacheFresh()) {
+          void listAllMcpTools(20_000).catch(() => undefined);
+        }
+        const mcpTools = getCachedMcpTools().map((t) => ({
+          server: t.server,
+          fullName: t.fullName,
+          name: t.name,
+          description: t.description,
+        }));
+
+        const card = buildEnvironmentCard(snapshot, mcpTools);
+        const mcpSection = buildMcpToolSection(mcpTools);
+        const allSkills = [...snapshot.skills, ...(snapshot.externalSkills || [])];
+        const skillSection = buildSkillSection(allSkills, userContent, 6);
+        const cliSection = describeCliBridge();
+
+        effectiveSystemPrompt +=
+          '\n\n' + [card, mcpSection, cliSection, skillSection].filter(Boolean).join('\n\n');
+      } catch (capErr: any) {
+        console.warn('[Capabilities] gagal membangun kartu lingkungan:', capErr?.message || capErr);
+      }
+    }
+
+    // Aturan kanal ditaruh PALING AKHIR (setelah persona & kartu kapabilitas).
+    // Di posisi tengah, blok ini kalah oleh instruksi lain dan model tetap
+    // mengirim Markdown web mentah ke WhatsApp.
+    effectiveSystemPrompt += channelFormatNotice;
 
     // Save user message to database if not temporary
     const userMsgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -511,12 +767,15 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
           if (resolved) images.push(resolved);
         }
       }
+
+      const formattedContent =
+        m.role === 'user'
+          ? formatMessageContentWithAttachments(m.content, m.attachments)
+          : (m.content || '').replace(/\s*\[FAKTA UI\s*&\s*AKSI PESAN INI:[\s\S]*?\]/gi, '').trim();
+
       return {
         role: m.role as any,
-        content:
-          m.role === 'user'
-            ? formatMessageContentWithAttachments(m.content, m.attachments)
-            : m.content,
+        content: formattedContent,
         images: images.length > 0 ? images : undefined,
       };
     });
@@ -564,6 +823,8 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
       reasoningEffort: reasoningEffort ?? conversation.reasoningEffort ?? undefined,
       stream: true,
       abortSignal: genController.signal,
+      // Channel kedua untuk model yang menolak protokol tag teks (Qoder, CodeBuddy).
+      tools: shouldSendNativeTools(providerId) ? buildNativeTools(isAdmin) : undefined,
     };
 
     // Keep-alive timer (scope luar agar ikut dibersihkan saat klien memutus koneksi)
@@ -580,6 +841,7 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
         let finishReason = 'stop';
         let tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
         const executedActions: import('@/types/chat').ActionInfo[] = [];
+        let liveTasks: TaskItem[] = [];
 
         // Helper to push SSE event & sync live state into activeGens for background reconnects
         const sendEvent = (event: string, data: any) => {
@@ -694,6 +956,8 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
             if (chunk.type === 'token' && chunk.content) {
               fullAssistantContent += chunk.content;
               sendEvent('token', { content: stripEndMarker(chunk.content) });
+            } else if (chunk.type === 'tool_calls' && chunk.toolCalls?.length) {
+              fullAssistantContent += nativeCallsToTags(chunk.toolCalls);
             } else if (chunk.type === 'reasoning' && chunk.reasoning) {
               fullReasoningContent += chunk.reasoning;
               sendEvent('reasoning', { reasoning: chunk.reasoning });
@@ -731,6 +995,8 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
                 if (chunk.type === 'token' && chunk.content) {
                   fullAssistantContent += chunk.content;
                   sendEvent('token', { content: stripEndMarker(chunk.content) });
+                } else if (chunk.type === 'tool_calls' && chunk.toolCalls?.length) {
+                  fullAssistantContent += nativeCallsToTags(chunk.toolCalls);
                 } else if (chunk.type === 'reasoning' && chunk.reasoning) {
                   fullReasoningContent += chunk.reasoning;
                   sendEvent('reasoning', { reasoning: chunk.reasoning });
@@ -747,80 +1013,328 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
           let toolHopCount = 0;
           let currentMessages = chatMessages;
           accumulatedDbContent = fullAssistantContent;
-          
-          while (fullAssistantContent && hasToolTags(fullAssistantContent, isAdmin) && !genSignal.aborted && toolHopCount < 100) {
+
+          // Anti "bertele-tele": satu permintaan dibatasi jumlah langkah tool,
+          // durasi total, dan perintah duplikat. Tanpa ini model reasoning
+          // (mis. rute codex) bisa mengulang eksplorasi sampai belasan menit.
+          const TOOL_LOOP_MAX_HOPS = 100;
+          // Batas waktu hanya pengaman darurat; target utama adalah 100 hop.
+          const TOOL_LOOP_MAX_MS = 6 * 60 * 60 * 1000;
+          const toolLoopStart = Date.now();
+          const executedCommands = new Map<string, string>();
+          const executedSearches = new Map<string, { query: string; output: string; sources?: import('@/types/chat').SearchSource[] }>();
+          const loadedSkills = new Set<string>();
+          const accumulatedStagedPaths: string[] = [];
+          const accumulatedMediaCaptions = new Map<string, string>();
+          let toolLoopStopReason: 'waktu' | 'hop' | null = null;
+
+          while (true) {
+            // Model tertentu (DeepSeek DSML) mengeluarkan tool-call native sebagai teks.
+            // Normalisasi ke protokol tag kita agar benar-benar dieksekusi.
+            fullAssistantContent = convertDsmlToolCalls(fullAssistantContent);
+            if (!fullAssistantContent || !hasToolTags(fullAssistantContent, isAdmin) || genSignal.aborted || toolHopCount >= TOOL_LOOP_MAX_HOPS) break;
+            if (Date.now() - toolLoopStart > TOOL_LOOP_MAX_MS) {
+              toolLoopStopReason = 'waktu';
+              console.warn(`[Chat] Batas waktu tool (${Math.round(TOOL_LOOP_MAX_MS / 1000)}s) tercapai pada hop ${toolHopCount}.`);
+              break;
+            }
             toolHopCount++;
             try {
-              // Real-time Action Progress event for live collapsible UI card
-              const firstTag = parseToolTags(fullAssistantContent, '[A-Z_]+').find(
-                (tag) => tag.type !== 'SIMPAN_MEMORI'
-              );
-              let actionName = 'Mencari informasi...';
-              let actionType = 'TOOL';
-              let actionParam = '';
-              if (firstTag) {
-                actionType = firstTag.type;
-                actionParam = firstTag.param;
-                const firstParamLine = actionParam.split('\n')[0].trim().substring(0, 60);
-                if (actionType === 'BUKA_WEB') actionName = `Membaca artikel web...`;
-                else if (actionType === 'SCREENSHOT_WEB') actionName = `Mengamati tampilan halaman web...`;
-                else if (actionType === 'CARI_WEB') actionName = `Mencari "${firstParamLine}" di internet...`;
-                else if (actionType === 'CEK_CUACA') actionName = 'Mengecek cuaca...';
-                else if (isAdmin && actionType === 'RUN_BASH') actionName = `Memeriksa sistem server...`;
-                else if (isAdmin && actionType === 'RUN_PYTHON') actionName = `Menganalisis data dengan Python...`;
-                else if (isAdmin && actionType === 'BACA_SKILL') actionName = `Mempelajari keahlian: ${firstParamLine}...`;
-                else if (isAdmin && actionType === 'INSTALL_SKILL') actionName = `Mengaktifkan kemampuan baru...`;
-                else if (isAdmin && actionType === 'BROWSER') {
-                  const bc = parseBrowserCommand(firstTag.param);
-                  actionName = `Mengendalikan browser: ${bc.describe}...`;
+              // Selamatkan tag pengiriman media ([KIRIM_FILE: ... | Judul]) yang
+              // mungkin sempat ditulis model bersamaan dengan tag tool di putaran tengah.
+              const midMediaTags = parseToolTags(fullAssistantContent, MEDIA_TAG_NAMES);
+              for (const mt of midMediaTags) {
+                const parts = mt.param.split('|').map((s) => s.trim());
+                const caption = parts.slice(1).join(' | ').trim();
+                const stagedMid = stageMediaTagsInReply(`[${mt.type}: ${mt.param}]`);
+                if (stagedMid.stagedPaths.length > 0 && caption) {
+                  accumulatedMediaCaptions.set(stagedMid.stagedPaths[0], caption);
                 }
-                else actionName = `Mengerjakan tugas: ${actionType}...`;
               }
 
-              const cleanBefore = cleanMessageContent(fullAssistantContent, false);
-              const actionId = `act_${Date.now()}_${toolHopCount}`;
-              sendEvent('action', {
-                id: actionId,
-                type: actionType,
-                label: actionName,
-                status: 'running',
-                details: actionParam ? actionParam.substring(0, 15000) : undefined,
-                command: actionType === 'RUN_BASH' || actionType === 'RUN_PYTHON' ? actionParam : undefined,
-                url: actionType === 'BUKA_WEB' || actionType === 'SCREENSHOT_WEB' ? actionParam : undefined,
-                textBefore: cleanBefore,
+              // Satu kartu live per panggilan tool: multi-query tampil berurutan,
+              // bukan ditumpuk jadi satu kartu gabungan.
+              const rawActionTags = parseToolTags(fullAssistantContent, '[A-Z_]+').filter(
+                (tag) =>
+                  tag.type !== 'SIMPAN_MEMORI' &&
+                  tag.type !== 'CATAT_TUGAS' &&
+                  tag.type !== 'SELESAI_TUGAS'
+              );
+
+              // Buang kartu untuk query yang duplikat/parafrase — baik terhadap
+              // giliran sebelumnya (executedSearches) maupun tag lain di giliran ini.
+              const localSearchKeys: { query: string }[] = [];
+              const actionTags = rawActionTags
+                .filter((tag) => {
+                  if (tag.type !== 'CARI_WEB') return true;
+                  const tokens = searchTokens(tag.param);
+                  if (tokens.length === 0) return true;
+                  const localCache = new Map(
+                    localSearchKeys.map((entry) => [searchTokens(entry.query).sort().join(' '), {
+                      query: entry.query,
+                      output: '',
+                    }])
+                  );
+                  if (
+                    findDuplicateSearch(executedSearches, tokens) ||
+                    findDuplicateSearch(localCache, tokens)
+                  ) {
+                    console.log(`[Chat] Kartu pencarian duplikat dilewati: ${tag.param}`);
+                    return false;
+                  }
+                  localSearchKeys.push({ query: tag.param });
+                  return true;
+                })
+                .slice(0, 5);
+
+              // Batasi jumlah query pencarian per giliran (default 2).
+              const maxSearch = Math.max(1, Math.min(Number(process.env.MAX_SEARCH_PER_TURN || 2) || 2, 5));
+              let searchCards = 0;
+              const limitedTags = actionTags.filter((tag) => {
+                if (tag.type !== 'CARI_WEB') return true;
+                if (searchCards >= maxSearch) return false;
+                searchCards++;
+                return true;
               });
+              const actionTagsFinal = limitedTags;
+
+              const browserDescribe = (param: string): string => {
+                try {
+                  return parseBrowserCommand(param).describe;
+                } catch {
+                  return param.substring(0, 80);
+                }
+              };
+
+              const describeAction = (type: string, param: string): string => {
+                const line = param.split('\n')[0].trim().substring(0, 60);
+                if (type === 'BUKA_WEB') return `Membaca artikel web...`;
+                if (type === 'SCREENSHOT_WEB') return `Mengamati tampilan halaman web...`;
+                if (type === 'CARI_WEB') return `Mencari "${line}" di internet...`;
+                if (type === 'CEK_CUACA') return 'Mengecek cuaca...';
+                if (type === 'MCP') return `Memanggil tool MCP: ${line.split('|')[0].trim()}...`;
+                if (type === 'CLI') return `Menjalankan CLI ${line.split('|')[0].trim()}...`;
+                if (type === 'BACA_SESI_KERJA') return 'Membaca memori pekerjaan lintas sesi...';
+                if (isAdmin && type === 'RUN_BASH') return `Memeriksa sistem server...`;
+                if (isAdmin && type === 'RUN_PYTHON') return `Menganalisis data dengan Python...`;
+                if (isAdmin && type === 'BACA_SKILL') return `Mempelajari keahlian: ${line}...`;
+                if (isAdmin && type === 'BACA_FILE') return `Membaca berkas kode: ${line.split('|')[0].trim()}...`;
+                if (isAdmin && type === 'EDIT_FILE') return `Memperbarui kode: ${line.split('|')[0].trim()}...`;
+                if (isAdmin && type === 'INSTALL_SKILL') return `Mengaktifkan kemampuan baru...`;
+                if (isAdmin && type === 'BROWSER') return `Mengendalikan browser: ${browserDescribe(param)}...`;
+                return `Mengerjakan tugas: ${type}...`;
+              };
+
+              const cleanBefore = cleanMessageContent(fullAssistantContent, false);
+              const pendingActions = actionTagsFinal.map((tag, i) => {
+                const startedAt = Date.now();
+                const label = describeAction(tag.type, tag.param);
+                const subject = buildActionSubject(
+                  tag.type,
+                  tag.param,
+                  tag.type === 'BROWSER' ? browserDescribe(tag.param) : undefined
+                );
+                const id = `act_${startedAt}_${toolHopCount}_${i}`;
+                sendEvent('action', {
+                  id,
+                  type: tag.type,
+                  label,
+                  subject,
+                  startedAt,
+                  status: 'running',
+                  details: tag.param ? tag.param.substring(0, 15000) : undefined,
+                  command:
+                    tag.type === 'RUN_BASH' || tag.type === 'RUN_PYTHON'
+                      ? tag.param
+                      : undefined,
+                  url:
+                    tag.type === 'BUKA_WEB' || tag.type === 'SCREENSHOT_WEB'
+                      ? tag.param
+                      : undefined,
+                  textBefore: i === 0 ? cleanBefore : undefined,
+                });
+                return { id, type: tag.type, param: tag.param, label, subject, startedAt };
+              });
+
+              let actionType = pendingActions[0]?.type || 'TOOL';
+              if (
+                pendingActions.length === 0 &&
+                /\[BACA_SESI_KERJA\s*\]/i.test(fullAssistantContent)
+              ) {
+                actionType = 'BACA_SESI_KERJA';
+                const bareStartedAt = Date.now();
+                const bareLabel = 'Membaca memori pekerjaan lintas sesi...';
+                const bareId = `act_${bareStartedAt}_${toolHopCount}_memori`;
+                sendEvent('action', {
+                  id: bareId,
+                  type: actionType,
+                  label: bareLabel,
+                  startedAt: bareStartedAt,
+                  status: 'running',
+                  textBefore: cleanBefore,
+                });
+                pendingActions.push({
+                  id: bareId,
+                  type: actionType,
+                  param: '',
+                  label: bareLabel,
+                  subject: '',
+                  startedAt: bareStartedAt,
+                });
+              }
 
               const toolResult = await executeTools(fullAssistantContent, {
                 isAdmin,
                 userId: user.id,
                 browserSession: convId || 'default',
+                conversationId: convId || undefined,
+                temporary,
                 otpApproved,
                 mediaApproved,
                 searchQuota,
+                executedCommands,
+                executedSearches,
+                loadedSkills,
               });
 
-              const finishedAction: import('@/types/chat').ActionInfo = {
-                id: actionId,
-                type: actionType,
-                label:
-                  actionType === 'CARI_WEB' && toolResult.sources?.length
-                    ? `Menelusuri ${toolResult.sources.length} sumber web untuk "${actionParam.split('|')[0].trim().substring(0, 45)}"`
-                    : actionName,
-                status: 'done',
-                details: toolResult.observation ? toolResult.observation.substring(0, 60000) : (actionParam || 'Selesai dieksekusi'),
-                textBefore: cleanBefore,
-                sources: toolResult.sources,
-                command: toolResult.command || (actionType === 'RUN_BASH' || actionType === 'RUN_PYTHON' ? actionParam : undefined),
-                output: toolResult.output || (toolResult.observation ? toolResult.observation.substring(0, 60000) : undefined),
-                url: toolResult.url || (actionType === 'BUKA_WEB' || actionType === 'SCREENSHOT_WEB' ? actionParam : undefined),
-                screenshotUrl: toolResult.screenshotUrl,
-                videoUrl: toolResult.videoUrl,
-                embedUrl: toolResult.embedUrl,
-              };
-              executedActions.push(finishedAction);
+              if (toolResult.stagedPaths && toolResult.stagedPaths.length > 0) {
+                for (const p of toolResult.stagedPaths) {
+                  if (!accumulatedStagedPaths.includes(p)) {
+                    accumulatedStagedPaths.push(p);
+                  }
+                }
+              }
 
-              sendEvent('action', finishedAction);
+              // Cocokkan tiap kartu dengan hasil per-panggilan dari eksekutor.
+              // === AGEN REVIEWER: menilai aksi berisiko sebelum hasilnya dipakai ===
+              const reviewTarget = pendingActions.find((p) => shouldReview(p.type, p.param));
+              let review: Awaited<ReturnType<typeof reviewAction>> = null;
+              if (reviewTarget) {
+                review = await reviewAction({
+                  type: reviewTarget.type,
+                  param: reviewTarget.param,
+                  output: toolResult.output || toolResult.observation || '',
+                  providerId,
+                  modelId,
+                });
+                if (review && review.verdict !== 'allow') {
+                  console.log(`[Reviewer] ${review.verdict}: ${review.reason}`);
+                  toolResult.observation = `${toolResult.observation || ''}\n\n[REVIEWER ${review.verdict.toUpperCase()}]: ${review.reason}`.trim();
+                  if (review.verdict === 'block') {
+                    toolResult.observation +=
+                      '\nJANGAN mengulang aksi ini. Laporkan ke pengguna dan tawarkan alternatif yang aman.';
+                  }
+                }
+              }
+
+              const steps = toolResult.steps || [];
+              const usedSteps = new Set<number>();
+              const normParam = (s: string) => (s || '').replace(/\s+/g, ' ').trim();
+              let legacyConsumed = false;
+
+              const finishedActions: import('@/types/chat').ActionInfo[] =
+                pendingActions.map((p, i) => {
+                  let si = steps.findIndex(
+                    (s, idx) => !usedSteps.has(idx) && normParam(s.param) === normParam(p.param)
+                  );
+                  if (si === -1) {
+                    si = steps.findIndex(
+                      (s, idx) =>
+                        !usedSteps.has(idx) &&
+                        normParam(s.param).startsWith(normParam(p.param).substring(0, 30))
+                    );
+                  }
+                  const step = si >= 0 ? steps[si] : undefined;
+                  if (si >= 0) usedSteps.add(si);
+                  // Kartu tanpa hasil sendiri membawa observasi agregat (satu kali saja).
+                  const useLegacy = !step && !legacyConsumed;
+                  if (useLegacy) legacyConsumed = true;
+
+                  const cardSources = step?.sources ?? (useLegacy ? toolResult.sources : undefined);
+                  const cardOutput =
+                    step?.output ??
+                    (useLegacy
+                      ? toolResult.output ||
+                        (toolResult.observation
+                          ? toolResult.observation.substring(0, 60000)
+                          : undefined)
+                      : undefined);
+
+                  return {
+                    id: p.id,
+                    type: p.type,
+                    label:
+                      p.type === 'CARI_WEB' && cardSources?.length
+                        ? `Menelusuri ${cardSources.length} sumber web untuk "${normParam(p.param).substring(0, 45)}"`
+                        : p.label,
+                    status: 'done',
+                    review: review && i === 0 ? { verdict: review.verdict, reason: review.reason } : undefined,
+                    subject:
+                      p.subject || buildActionSubject(p.type, step?.param || p.param),
+                    startedAt: p.startedAt,
+                    durationMs: step?.durationMs ?? Date.now() - p.startedAt,
+                    isError: step
+                      ? !step.ok
+                      : useLegacy
+                        ? isActionFailure(toolResult.observation, toolResult.output)
+                        : false,
+                    details: step
+                      ? step.output
+                      : useLegacy
+                        ? toolResult.observation
+                          ? toolResult.observation.substring(0, 60000)
+                          : p.param || 'Selesai dieksekusi'
+                        : p.param || 'Selesai dieksekusi',
+                    textBefore: i === 0 ? cleanBefore : undefined,
+                    sources: cardSources,
+                    command:
+                      p.type === 'RUN_BASH' || p.type === 'RUN_PYTHON'
+                        ? p.param
+                        : useLegacy
+                          ? toolResult.command
+                          : undefined,
+                    output: cardOutput,
+                    url:
+                      p.type === 'BUKA_WEB' || p.type === 'SCREENSHOT_WEB'
+                        ? p.param
+                        : useLegacy
+                          ? toolResult.url
+                          : undefined,
+                    screenshotUrl: useLegacy ? toolResult.screenshotUrl : undefined,
+                    videoUrl: useLegacy ? toolResult.videoUrl : undefined,
+                    embedUrl: useLegacy ? toolResult.embedUrl : undefined,
+                  };
+                });
+
+              // Semua kartu punya hasil sendiri: media agregat menempel di kartu terakhir.
+              if (!legacyConsumed && finishedActions.length > 0) {
+                const lastCard = finishedActions[finishedActions.length - 1];
+                if (toolResult.videoUrl) lastCard.videoUrl = toolResult.videoUrl;
+                if (toolResult.screenshotUrl) lastCard.screenshotUrl = toolResult.screenshotUrl;
+                if (toolResult.embedUrl) lastCard.embedUrl = toolResult.embedUrl;
+                if (toolResult.url && !lastCard.url) lastCard.url = toolResult.url;
+              }
+
+              for (const finishedAction of finishedActions) {
+                executedActions.push(finishedAction);
+                sendEvent('action', finishedAction);
+              }
+
+              // === AGEN REPORTER: perbarui papan tugas live dari tag tugas ===
+              liveTasks = mergeTaskList(liveTasks, fullAssistantContent);
+              if (liveTasks.length > 0) {
+                sendEvent('task_update', { tasks: liveTasks });
+              }
               if (toolResult.hasAction && toolResult.observation) {
+                // Directive escalating: dorong model ke jawaban final, bukan
+                // eksplorasi tanpa akhir.
+                const hopDirective =
+                  toolHopCount >= 90
+                    ? '\n\n[URUTAN SISTEM - WAJIB] Ini mendekati batas 100 langkah. Tulis JAWABAN FINAL sekarang: ringkas, tegas, sebutkan hasil yang sudah diperoleh dan apa yang belum terverifikasi. Jangan panggil tool apa lagi.'
+                    : toolHopCount >= 70
+                      ? `\n\n[URUTAN SISTEM] Kamu sudah memakai ${toolHopCount} tool call pada permintaan ini (maksimal ${TOOL_LOOP_MAX_HOPS}). Gabungkan sisa pemeriksaan yang masih perlu ke SATU perintah, lalu pada langkah berikutnya tulis jawaban final untuk pengguna.`
+                      : '';
+
                 // Build a follow-up request with tool results injected
                 const toolInjectedMessages: import('@/lib/ai/provider-interface').ChatMessage[] = [
                   ...currentMessages.slice(0, -1), // all except the last user message
@@ -834,7 +1348,7 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
                   },
                   {
                     role: 'user' as const,
-                    content: `[TOOL RESULTS]:\n${toolResult.observation}\n\nBased on the above tool results, provide your final comprehensive answer to the user.`,
+                    content: `[TOOL RESULTS]:\n${toolResult.observation}${hopDirective}\n\nJangan ulangi penjelasan umum yang sudah ditulis sebelum tool. Tulis SATU jawaban final yang ringkas dan langsung memuat hasil tool di atas untuk pengguna.`,
                   },
                 ];
 
@@ -845,30 +1359,66 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
                   abortSignal: genSignal,
                 };
 
-                // Reset content for next round
-                const prevContent = fullAssistantContent;
+                // Reset content for next round.
+                // Teks pra-tool BUKAN jawaban final: sudah tersimpan di
+                // action.textBefore. Pesan final hanya berisi jawaban akhir.
                 fullAssistantContent = '';
+                accumulatedDbContent = '';
 
-                sendEvent('token', { content: '' }); // clear hint
-                const toolAiStream = AIRouter.streamChat(providerId, toolChatRequest);
-                for await (const chunk of toolAiStream) {
-                  if (genSignal.aborted) break;
-                  if (chunk.type === 'token' && chunk.content) {
-                    fullAssistantContent += chunk.content;
-                    accumulatedDbContent += chunk.content;
-                    sendEvent('token', { content: stripEndMarker(chunk.content) });
-                  } else if (chunk.type === 'reasoning' && chunk.reasoning) {
-                    fullReasoningContent += chunk.reasoning;
-                    sendEvent('reasoning', { reasoning: chunk.reasoning });
-                  } else if (chunk.type === 'usage' && chunk.usage) {
-                    tokenUsage = chunk.usage;
-                    sendEvent('usage', chunk.usage);
+                sendEvent('reset', { reason: 'tool' });
+
+                // Rute harness (oc/*) dan beberapa upstream gratis kadang
+                // membalas kosong / 429 saat giliran lanjutan. Coba lagi
+                // sekali sebelum menyerah.
+                let followUpOk = false;
+                for (let attempt = 1; attempt <= 2 && !genSignal.aborted; attempt++) {
+                  fullAssistantContent = '';
+                  const toolAiStream = AIRouter.streamChat(providerId, toolChatRequest);
+                  for await (const chunk of toolAiStream) {
+                    if (genSignal.aborted) break;
+                    if (chunk.type === 'token' && chunk.content) {
+                      fullAssistantContent += chunk.content;
+                      accumulatedDbContent += chunk.content;
+                      sendEvent('token', { content: stripEndMarker(chunk.content) });
+                    } else if (chunk.type === 'tool_calls' && chunk.toolCalls?.length) {
+                      // Sengaja tidak masuk accumulatedDbContent: tag hasil konversi
+                      // adalah instruksi kerja, bukan jawaban untuk pengguna.
+                      fullAssistantContent += nativeCallsToTags(chunk.toolCalls);
+                    } else if (chunk.type === 'reasoning' && chunk.reasoning) {
+                      fullReasoningContent += chunk.reasoning;
+                      sendEvent('reasoning', { reasoning: chunk.reasoning });
+                    } else if (chunk.type === 'usage' && chunk.usage) {
+                      tokenUsage = chunk.usage;
+                      sendEvent('usage', chunk.usage);
+                    }
+                  }
+                  if (fullAssistantContent) {
+                    followUpOk = true;
+                    break;
+                  }
+                  console.warn(
+                    `[Chat] Giliran lanjutan kosong (percobaan ${attempt}/2) untuk model ${modelId}.`
+                  );
+                  if (attempt < 2) {
+                    await new Promise((r) => setTimeout(r, 900));
                   }
                 }
-                
-                // If it failed to generate any tokens, fallback and break
-                if (!fullAssistantContent) {
-                  fullAssistantContent = prevContent;
+
+                // Model berhenti tanpa jawaban: jangan diamkan. Tampilkan
+                // hasil tool supaya pengguna tetap mendapat informasi.
+                if (!followUpOk) {
+                  const toolOut = String(toolResult.output || toolResult.observation || '')
+                    .replace(/^\[[^\]]+\]:\s*/i, '')
+                    .trim()
+                    .slice(0, 2000);
+                  const note =
+                    `\n\n⚠️ Model berhenti setelah menjalankan tool (**${actionType}**) dan tidak menulis jawaban lanjutan. ` +
+                    (toolOut
+                      ? `Berikut hasil tool:\n\n\`\`\`text\n${toolOut}\n\`\`\`\n\n_Silakan tulis ulang pertanyaan agar saya jawab langsung._`
+                      : `_Silakan tulis ulang pertanyaan agar saya jawab langsung._`);
+                  fullAssistantContent = note;
+                  accumulatedDbContent = note;
+                  sendEvent('token', { content: note });
                   break;
                 }
                 
@@ -883,9 +1433,25 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
             }
           }
 
+          if (!toolLoopStopReason && toolHopCount >= TOOL_LOOP_MAX_HOPS) {
+            toolLoopStopReason = 'hop';
+          }
+
+          if (toolLoopStopReason) {
+            const reasonText =
+              toolLoopStopReason === 'waktu'
+                ? `batas waktu eksekusi tool (${Math.round(TOOL_LOOP_MAX_MS / 60000)} menit) tercapai`
+                : `batas ${TOOL_LOOP_MAX_HOPS} langkah tool tercapai`;
+            const note = `\n\n_(Catatan sistem: eksekusi tool dihentikan karena ${reasonText}. Hasil di atas adalah hasil terakhir.)_`;
+            accumulatedDbContent += note;
+            fullAssistantContent += note;
+            sendEvent('token', { content: note });
+          }
+
           // Simpan tag [SIMPAN_MEMORI: ...] ke memori pengguna dan bersihkan
           // tag dari konten final. Tag sudah tidak terlihat di UI karena
           // cleanMessageContent juga menyaringnya.
+          const rawBeforeCleanup = accumulatedDbContent;
           let memorySavedCount = 0;
           try {
             const memoryResult = MemoryRepository.consumeMemoryTags(
@@ -899,17 +1465,86 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
             console.warn('[Memory] Gagal memproses tag memori:', memErr);
           }
 
-          // Jika balasan hanya berisi tag memori, beri konfirmasi singkat.
-          if (memorySavedCount > 0 && !cleanMessageContent(accumulatedDbContent, false).trim()) {
-            const confirmation = 'Baik, saya sudah mengingat itu.';
+          // Simpan tag [CATAT_TUGAS]/[SELESAI_TUGAS] ke memori kerja lintas
+          // sesi, lalu bersihkan tag dari jawaban final.
+          let taskUpdatedCount = 0;
+          if (!temporary && convId) {
+            try {
+              const taskResult = WorkSessionRepository.consumeTaskTags(
+                user.id,
+                convId,
+                accumulatedDbContent,
+                true
+              );
+              accumulatedDbContent = taskResult.text;
+              taskUpdatedCount = taskResult.updated;
+            } catch (taskErr) {
+              console.warn('[WorkSession] Gagal memproses tag tugas:', taskErr);
+            }
+          } else {
+            const taskResult = WorkSessionRepository.consumeTaskTags(
+              user.id,
+              convId || undefined,
+              accumulatedDbContent,
+              false
+            );
+            accumulatedDbContent = taskResult.text;
+          }
+
+          // Jika balasan hanya berisi tag memori/tugas, beri konfirmasi singkat.
+          if ((memorySavedCount > 0 || taskUpdatedCount > 0) && !cleanMessageContent(accumulatedDbContent, false).trim()) {
+            const confirmation = taskUpdatedCount > 0
+              ? 'Baik, sesi pekerjaan sudah saya catat.'
+              : 'Baik, saya sudah mengingat itu.';
             accumulatedDbContent = confirmation;
             fullAssistantContent = confirmation;
             sendEvent('token', { content: confirmation });
           }
 
+          // Stage & kanonikalisasi path media pada tag [KIRIM_FILE: ...] di balasan akhir
+          // (termasuk resolusi fuzzy spasi vs underscore agar kartu pemutar tidak pernah 404).
+          const finalStagedMedia = stageMediaTagsInReply(accumulatedDbContent);
+          if (finalStagedMedia.rewrittenText !== accumulatedDbContent) {
+            accumulatedDbContent = finalStagedMedia.rewrittenText;
+            fullAssistantContent = finalStagedMedia.rewrittenText;
+          }
+          for (const sp of finalStagedMedia.stagedPaths) {
+            if (!accumulatedStagedPaths.includes(sp)) {
+              accumulatedStagedPaths.push(sp);
+            }
+          }
+
+          // Auto-inject missing media tags jika tool (atau putaran tengah) berhasil menyiapkan berkas media
+          // tetapi model lupa menyertakan tag [KIRIM_FILE] dalam jawaban final.
+          if (accumulatedStagedPaths.length > 0) {
+            const existingInline = extractInlineMedia(accumulatedDbContent);
+            const existingFilenames = new Set(existingInline.map((im) => im.filename.toLowerCase()));
+            const missingPaths = Array.from(new Set(accumulatedStagedPaths))
+              .filter((p) => !existingFilenames.has(path.basename(p).toLowerCase()))
+              .slice(0, 5);
+
+            if (missingPaths.length > 0) {
+              const autoMediaTags = missingPaths
+                .map((p) => {
+                  const customCap = accumulatedMediaCaptions.get(p);
+                  if (customCap) return `[KIRIM_FILE: ${p} | ${customCap}]`;
+                  const ext = path.extname(p).toLowerCase();
+                  const isVid = ['.mp4', '.webm', '.mov', '.mkv'].includes(ext);
+                  const isAud = ['.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac'].includes(ext);
+                  const label = isVid ? `Video (${path.basename(p)})` : isAud ? `Audio (${path.basename(p)})` : path.basename(p);
+                  return `[KIRIM_FILE: ${p} | ${label}]`;
+                })
+                .join('\n');
+              accumulatedDbContent += `\n\n${autoMediaTags}`;
+              fullAssistantContent += `\n\n${autoMediaTags}`;
+              sendEvent('token', { content: `\n\n${autoMediaTags}` });
+            }
+          }
+
           // Jika model tidak menulis teks akhir (baik setelah tool maupun sama
           // sekali), jangan biarkan gelembung balasan kosong.
-          if (!cleanMessageContent(accumulatedDbContent, false).trim()) {
+          const hasAnyMediaCard = extractInlineMedia(accumulatedDbContent).length > 0;
+          if (!cleanMessageContent(accumulatedDbContent, false).trim() && !hasAnyMediaCard) {
             let fallbackSummary = '';
             if (executedActions.length > 0) {
               const lastAct = executedActions[executedActions.length - 1];
@@ -923,11 +1558,32 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
             } else {
               fallbackSummary =
                 `⚠️ Model **${modelId}** tidak menghasilkan teks jawaban (seluruh kuota outputnya habis untuk proses berpikir internal). ` +
-                `Ini kendala pada rute model gratis lewat gateway OpenCode. Silakan kirim ulang, atau ganti ke model lain seperti **ag/gemini-3.8-flash-high**.`;
+                (isOpenCodeRoute
+                  ? `Rute harness OpenCode (oc/*) sering gagal karena endpoint upstream-nya bermasalah (429 / 410 / model deprecated) — sudah dicoba 3×. Silakan kirim ulang, atau pindah ke model yang stabil seperti **kios/glm-5.3-flash-free** atau **oc/glm-5.3-flash-free**.`
+                  : `Ini kendala pada rute model gratis. Silakan kirim ulang, atau ganti ke model lain seperti **kios/glm-5.3-flash-free** (sedang aktif).`);
             }
             fullAssistantContent += fallbackSummary;
             accumulatedDbContent += fallbackSummary;
             sendEvent('token', { content: fallbackSummary });
+          }
+
+          // Bersihkan sisa tag tool eksekusi/tugas internal dari jawaban final
+          // TANPA menghapus tag kartu UI ([KIRIM_FILE], [KIRIM_AUDIO], [KIRIM_VIDEO],
+          // [KIRIM_GAMBAR], [KIRIM_DOKUMEN], [IZIN], [PILIHAN], [QUEST]) agar
+          // komponen MessageItem di frontend dapat merender kartu interaktifnya.
+          const cleanedFinal = cleanServerFinalContent(accumulatedDbContent);
+          const needsFinalReset = Boolean(
+            cleanedFinal &&
+            (
+              cleanedFinal !== accumulatedDbContent.trim() ||
+              rawBeforeCleanup.trim() !== accumulatedDbContent.trim()
+            )
+          );
+          if (needsFinalReset) {
+            accumulatedDbContent = cleanedFinal;
+            fullAssistantContent = cleanedFinal;
+            sendEvent('reset', { reason: 'final-cleanup' });
+            sendEvent('token', { content: cleanedFinal });
           }
         } catch (streamErr: any) {
 
@@ -944,11 +1600,10 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
           // Save partial or complete assistant response into database if not temporary
           if (!temporary && (fullAssistantContent.trim().length > 0 || fullReasoningContent.trim().length > 0)) {
             try {
-              const cleanDbContent = accumulatedDbContent
-                .replace(/\[\/?BALASAN_AKHIR\]/gi, '')
-                .trim();
-
-              stageMediaTagsInReply(cleanDbContent);
+              const stagedDb = stageMediaTagsInReply(
+                accumulatedDbContent.replace(/\[\/?BALASAN_AKHIR\]/gi, '').trim()
+              );
+              const cleanDbContent = stagedDb.rewrittenText;
 
               MessageRepository.createMessage({
                 id: assistantMsgId,
@@ -966,6 +1621,7 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
                   totalTokens: tokenUsage.totalTokens,
                   interrupted: genSignal.aborted,
                   actions: executedActions,
+                  tasks: liveTasks,
                 },
               });
               ConversationRepository.touchConversation(convId!);
