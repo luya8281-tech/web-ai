@@ -139,7 +139,8 @@ def check_existing_merged(shortcode):
                     "type": "video",
                     "sub_type": "slideshow",
                     "path": pub,
-                    "paths": [pub] + img_paths,
+                    "paths": [pub],
+                    "images": img_paths,
                     "shortcode": shortcode,
                     "has_audio": True,
                     "size": os.path.getsize(pub)
@@ -312,29 +313,39 @@ def try_ytdlp(url, shortcode):
     return None
 
 def extract_audio_info_from_item(item):
-    """Ekstrak URL audio mentah (.m4a) dari dictionary item Instagram."""
+    """Ekstrak URL audio mentah (.m4a) dari dictionary item Instagram.
+    Mengembalikan (music_url, title, start_ms) — start_ms = titik awal klip
+    yang dipakai postingan (highlight/chorus), 0 bila tidak ada."""
     if not item or not isinstance(item, dict):
-        return None, None
+        return None, None, 0
 
     title = None
     music_url = None
+    start_ms = 0
+
+    def _asset_fields(container):
+        nonlocal title, music_url, start_ms
+        masset = container.get("music_asset_info") or {}
+        if not isinstance(masset, dict):
+            return
+        title = title or masset.get("title") or masset.get("song_name")
+        music_url = music_url or masset.get("progressive_download_url") or masset.get("fast_start_progressive_download_url")
+        hl = masset.get("highlight_start_times_in_ms") or []
+        if hl and isinstance(hl, list) and isinstance(hl[0], (int, float)):
+            start_ms = start_ms or int(hl[0])
 
     # 1. clips_metadata -> music_info
     clips_meta = item.get("clips_metadata") or {}
     music_info = clips_meta.get("music_info") or item.get("music_info") or {}
     if music_info and isinstance(music_info, dict):
-        masset = music_info.get("music_asset_info") or {}
-        title = masset.get("title") or masset.get("song_name")
-        music_url = masset.get("progressive_download_url") or masset.get("fast_start_progressive_download_url")
+        _asset_fields(music_info)
 
     # 2. music_metadata -> music_info
     if not music_url:
         mmeta = item.get("music_metadata") or {}
         minfo = mmeta.get("music_info") or {}
         if minfo and isinstance(minfo, dict):
-            masset = minfo.get("music_asset_info") or {}
-            title = title or masset.get("title") or masset.get("song_name")
-            music_url = masset.get("progressive_download_url") or masset.get("fast_start_progressive_download_url")
+            _asset_fields(minfo)
 
     # 3. clips_music_attribution_info
     if not music_url:
@@ -351,7 +362,7 @@ def extract_audio_info_from_item(item):
             title = title or s.get("title")
             music_url = s.get("progressive_download_url") or s.get("fast_start_progressive_download_url")
 
-    return music_url, title
+    return music_url, title, start_ms
 
 def get_warp_proxy():
     """Cek apakah Cloudflare WARP SOCKS5 proxy aktif di port 40000."""
@@ -434,14 +445,31 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
                     pub = publish_file(fn, f"ig_{shortcode}_{idx}.jpg")
                     downloaded.append(pub)
 
-            music_url, song_title = extract_audio_info_from_item(item)
+            music_url, song_title, music_start_ms = extract_audio_info_from_item(item)
             if not music_url:
                 for r in resources:
-                    m_u, s_t = extract_audio_info_from_item(r)
+                    m_u, s_t, s_ms = extract_audio_info_from_item(r)
                     if m_u:
                         music_url = m_u
                         song_title = s_t
+                        music_start_ms = s_ms
                         break
+
+            def _windowed_audio(aud_file):
+                """Potong trek ke klip yang dipakai postingan (mulai dari chorus)."""
+                if music_start_ms and music_start_ms > 0:
+                    clip = aud_file.replace(".m4a", "_clip.m4a")
+                    try:
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-ss", f"{music_start_ms/1000:.3f}", "-t", "30",
+                             "-i", aud_file, "-c:a", "aac", "-b:a", "128k", clip],
+                            check=True, capture_output=True,
+                        )
+                        if os.path.exists(clip) and os.path.getsize(clip) > 1000 and check_audio_volume(clip):
+                            return clip
+                    except Exception:
+                        pass
+                return aud_file
 
             if audio_only and music_url:
                 aud_file = os.path.join(DEFAULT_OUT, f"ig_{shortcode}_audio.m4a")
@@ -465,6 +493,7 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
                     aud_file = os.path.join(DEFAULT_OUT, f"ig_{shortcode}_audio.m4a")
                     urllib.request.urlretrieve(music_url, aud_file)
                     if check_audio_volume(aud_file):
+                        aud_file = _windowed_audio(aud_file)
                         merged = os.path.join(DEFAULT_OUT, f"ig_{shortcode}_slide.mp4")
                         try:
                             merge_carousel_with_audio(img_slides, aud_file, merged)
@@ -474,7 +503,8 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
                                 "type": "video",
                                 "sub_type": "slideshow",
                                 "path": pub_m,
-                                "paths": [pub_m] + downloaded,
+                                "paths": [pub_m],
+                                "images": downloaded,
                                 "shortcode": shortcode,
                                 "title": song_title,
                                 "has_audio": True,
@@ -497,7 +527,22 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
         photo_fn = cl.photo_download(pk, folder=DEFAULT_OUT)
         pub_photo = publish_file(photo_fn, f"ig_{shortcode}.jpg")
 
-        music_url, song_title = extract_audio_info_from_item(item)
+        music_url, song_title, music_start_ms = extract_audio_info_from_item(item)
+
+        def _windowed_audio_photo(aud_file):
+            if music_start_ms and music_start_ms > 0:
+                clip = aud_file.replace(".m4a", "_clip.m4a")
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-ss", f"{music_start_ms/1000:.3f}", "-t", "30",
+                         "-i", aud_file, "-c:a", "aac", "-b:a", "128k", clip],
+                        check=True, capture_output=True,
+                    )
+                    if os.path.exists(clip) and os.path.getsize(clip) > 1000 and check_audio_volume(clip):
+                        return clip
+                except Exception:
+                    pass
+            return aud_file
 
         if audio_only and music_url:
             aud_file = os.path.join(DEFAULT_OUT, f"ig_{shortcode}_audio.m4a")
@@ -519,6 +564,7 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
             aud_file = os.path.join(DEFAULT_OUT, f"ig_{shortcode}_audio.m4a")
             urllib.request.urlretrieve(music_url, aud_file)
             if check_audio_volume(aud_file):
+                aud_file = _windowed_audio_photo(aud_file)
                 merged = os.path.join(DEFAULT_OUT, f"ig_{shortcode}_slide.mp4")
                 try:
                     merge_photo_with_audio(pub_photo, aud_file, merged)
@@ -528,7 +574,8 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
                         "type": "video",
                         "sub_type": "slideshow",
                         "path": pub_m,
-                        "paths": [pub_m, pub_photo],
+                        "paths": [pub_m],
+                        "images": [pub_photo],
                         "shortcode": shortcode,
                         "title": song_title,
                         "has_audio": True,
@@ -730,7 +777,8 @@ def parse_instagram_html(html, shortcode, merge_audio=True, audio_only=False, au
                 "type": "video",
                 "sub_type": "slideshow",
                 "path": pub_vid,
-                "paths": [pub_vid] + downloaded_images,
+                "paths": [pub_vid],
+                "images": downloaded_images,
                 "shortcode": shortcode,
                 "title": song_title or audio_query,
                 "has_audio": True,
@@ -864,9 +912,13 @@ async def extract_via_playwright(url, shortcode, merge_audio=True, custom_audio=
         response_texts.extend(scripts_content)
 
         dom_images = await page.evaluate("""() => {
-            const imgs = Array.from(document.querySelectorAll('article img, main img, div[role="dialog"] img'));
-            return imgs.map(i => ({ src: i.src, w: i.naturalWidth || 0, h: i.naturalHeight || 0 }))
-                       .filter(i => i.src && (i.src.includes('cdninstagram.com') || i.src.includes('fbcdn.net')));
+            // HANYA gambar dari artikel post utama — halaman post juga memuat
+            // grid "More posts" yang dulu mencemari hasil dengan 9-10 foto asing.
+            const art = document.querySelector('main article') || document.querySelector('article');
+            if (!art) return [];
+            return Array.from(art.querySelectorAll('img'))
+                .map(i => ({ src: i.src, w: i.naturalWidth || 0, h: i.naturalHeight || 0 }))
+                .filter(i => i.src && (i.src.includes('cdninstagram.com') || i.src.includes('fbcdn.net')));
         }""")
         for item in dom_images:
             if item["src"] not in captured_image_urls:
@@ -1016,7 +1068,8 @@ async def extract_via_playwright(url, shortcode, merge_audio=True, custom_audio=
                 "type": "video",
                 "sub_type": "slideshow",
                 "path": pub,
-                "paths": [pub] + downloaded_images,
+                "paths": [pub],
+                "images": downloaded_images,
                 "shortcode": shortcode,
                 "has_audio": True,
                 "size": os.path.getsize(pub)
