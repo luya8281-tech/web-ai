@@ -120,9 +120,8 @@ export class CodexAdapter implements AIProvider {
 
     // Default CLI untuk verbosity model keluarga GPT-5 sering "low" — sumber
     // utama jawaban pelit. Bisa dinaikkan via env tanpa deploy ulang.
-    const verbosity = ['low', 'medium', 'high'].includes((process.env.CODEX_VERBOSITY || '').toLowerCase())
-      ? process.env.CODEX_VERBOSITY.toLowerCase()
-      : 'medium';
+    const envVerbosity = (process.env.CODEX_VERBOSITY || '').toLowerCase();
+    const verbosity = ['low', 'medium', 'high'].includes(envVerbosity) ? envVerbosity : 'medium';
     args.push('--config', `model_verbosity="${verbosity}"`);
 
     // Pass the prompt as an argument
