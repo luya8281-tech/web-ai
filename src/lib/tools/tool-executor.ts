@@ -690,8 +690,6 @@ export interface ExecuteToolOptions {
   temporary?: boolean;
   /** True hanya bila pesan pengguna terakhir memang menyetujui pengambilan OTP. */
   otpApproved?: boolean;
-  /** True hanya bila pengguna terakhir menyetujui pengambilan transkrip/audio video (hak/izin). */
-  mediaApproved?: boolean;
   /** Kuota sumber pencarian web (10-50, default 30) */
   searchQuota?: number;
   /** Cache perintah bash yang sudah dijalankan pada request ini (anti loop). */
@@ -1412,9 +1410,6 @@ df -h / | awk 'NR==2{printf "Disk: %s/%s (%s bebas)\\n", $3, $2, $4}'
   }
 
   // 7b. [AMBIL_SUBTITEL: url] - Admin Only
-  // GERBANG IZIN: mengunduh/menranskrip audio video pihak lain butuh persetujuan
-  // pengguna (kepemilikan/hak) lebih dulu — sama seperti gerbang OTP. Tanpa
-  // persetujuan pada giliran terakhir, tag TIDAK dijalankan.
   if (isAdmin) {
     const subRegex = /\[AMBIL_SUBTITEL:\s*(https?:\/\/[^\s\]]+)\]/gi;
     const subMatches = Array.from(cleanReply.matchAll(subRegex)).slice(0, 1);
@@ -1423,19 +1418,13 @@ df -h / | awk 'NR==2{printf "Disk: %s/%s (%s bebas)\\n", $3, $2, $4}'
       if (subUrl) {
         hasAction = true;
         lastUrl = subUrl;
-        if (!options?.mediaApproved) {
-          observationParts.push(
-            `[IZIN DIPERLUKAN - AMBIL_SUBTITEL]: Jangan unduh/transkrip dulu. Konfirmasi singkat ke pengguna bahwa video itu miliknya atau ia berhak/berizin (bukan konten pihak lain tanpa izin), misalnya: "Boleh saya unduh & transkrip video ini? Pastikan Anda pemiliknya atau punya izin." Setelah pengguna menjawab setuju pada giliran berikutnya, panggil ulang \`[AMBIL_SUBTITEL: ${subUrl}]\`.`
-          );
+        console.log(`[ToolExecutor] Ambil subtitel: ${subUrl}`);
+        const result = await runSubtitleTool(subUrl);
+        lastOutput = result.output;
+        if (result.success) {
+          observationParts.push(`[HASIL SUBTITEL]:\n${truncateOutput(result.output, 35000)}\n\n(File .srt dan .txt tersimpan di folder /root/getsub/output/ di server. Sajikan teks transkrip di atas kepada pengguna; perbaiki seperlunya salah dengar yang jelas tanpa mengubah isi.)`);
         } else {
-          console.log(`[ToolExecutor] Ambil subtitel: ${subUrl}`);
-          const result = await runSubtitleTool(subUrl);
-          lastOutput = result.output;
-          if (result.success) {
-            observationParts.push(`[HASIL SUBTITEL]:\n${truncateOutput(result.output, 35000)}\n\n(File .srt dan .txt tersimpan di folder /root/getsub/output/ di server. Sajikan teks transkrip di atas kepada pengguna; perbaiki seperlunya salah dengar yang jelas tanpa mengubah isi.)`);
-          } else {
-            observationParts.push(`[ERROR SUBTITEL]: ${truncateOutput(result.error || result.output, 2000)}`);
-          }
+          observationParts.push(`[ERROR SUBTITEL]: ${truncateOutput(result.error || result.output, 2000)}`);
         }
       }
     }

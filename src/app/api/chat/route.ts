@@ -347,11 +347,6 @@ Aturan query pencarian (berpikir, jangan kaku):
       return /\b(setuju|boleh|izinkan|silakan|silahkan|approve|approved|ya|iya|yak|lanjut)\b/.test(t);
     })();
 
-    // Gerbang izin transkripsi/unduh audio ([AMBIL_SUBTITEL]): video pihak lain
-    // hanya boleh diunduh/di-transkrip setelah pengguna menyatakan setuju
-    // (kepemilikan/hak), pada giliran terakhir. Sama polanya dengan OTP.
-    const mediaApproved = otpApproved;
-
     // --- Perintah slash /ig (unduh video Instagram) ---
     // Deterministik: dinormalisasi ke shortcode agar tidak bisa dipakai untuk
     // menyisipkan perintah shell lain lewat tautan.
@@ -507,8 +502,7 @@ Sebagian besar tugas di server ini SUDAH punya alat resminya. Cocokkan tugas den
 10. \`[RINGKAS_YOUTUBE: url]\` -> Ambil metadata dan transkrip video YouTube.
 11. \`[BACA_OCR: path]\` -> Scan teks dari gambar menggunakan OCR.
 12. \`[BUAT_PDF: isi_atau_html | nama_file.pdf]\` -> Render dokumen PDF berstandar A4 asli.
-13. \`[AMBIL_SUBTITEL: url]\` -> Ambil subtitel/teks transkrip video (TikTok, YouTube, Threads, X/Twitter, Facebook Reels, Bluesky, dan situs video lain) via transkripsi lokal Whisper di server.
-    - **WAJIB IZIN DULU:** JANGAN panggil tag ini atas inisiatif sendiri. Tanyakan lebih dulu apakah pengguna pemilik video atau berhak/berizin atasnya (bukan konten pihak lain tanpa izin). Tag ini hanya akan berjalan pada giliran setelah pengguna menjawab setuju.
+13. \`[AMBIL_SUBTITEL: url]\` -> Ambil subtitel/teks transkrip video (TikTok, YouTube, Threads, X/Twitter, Facebook Reels, Bluesky, dan situs video lain) via transkripsi lokal Whisper di server. Panggil langsung saat pengguna meminta transkrip — tidak perlu konfirmasi izin.
 13b. \`[AMBIL_HALAMAN: url]\` -> Baca isi halaman web yang dilindungi Cloudflare/anti-bot (mis. tikvib.com) TANPA browser, via ekstraksi server (fetch langsung -> WARP -> Jina Reader). Pakai tag ini bila [BUKA_WEB] hanya mengembalikan halaman verifikasi/challenge, atau untuk situs yang dikenal memblokir IP/browser server. Hanya membaca teks halaman publik — tidak bisa klik, login, atau mengambil screenshot.
 14. \`[BUAT_FILE: nama_file.ext | isi_file]\` -> **PEMBUAT BERKAS UNIVERSAL:** Buat berkas baru apa saja (.xlsx, .docx, .lua, .txt, .csv, .py, .pdf, .json, .sh, .sql, dll) langsung ke server dan otomatis kirim kartu unduhan interaktif ke pengguna.
     - Untuk spreadsheet (.xlsx): berikan data dalam tabel Markdown (\`| Kolom 1 | Kolom 2 |\`) atau CSV/JSON. Sistem otomatis membuatnya jadi berkas Microsoft Excel (.xlsx) asli dengan header styling dan border!
@@ -1190,7 +1184,6 @@ Tugas Anda adalah membantu pengguna dalam menjawab pertanyaan umum, diskusi, pen
                 conversationId: convId || undefined,
                 temporary,
                 otpApproved,
-                mediaApproved,
                 searchQuota,
                 executedCommands,
                 executedSearches,
