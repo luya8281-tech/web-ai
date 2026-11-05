@@ -187,6 +187,31 @@ export class CodexAdapter implements AIProvider {
 
     let buffer = '';
 
+    // Codex CLI juga mengirim item agent_reasoning (ringkasan thinking model).
+    // Dulu dibuang; sekarang diteruskan sebagai reasoning ke UI.
+    let emittedReasoning = '';
+    const pushReasoning = (value: unknown, isSnapshot = false) => {
+      const text = typeof value === 'string'
+        ? value
+        : Array.isArray(value)
+          ? value.map((part) => typeof part === 'string' ? part : part?.text || part?.summary || '').join('')
+          : value && typeof value === 'object'
+            ? (value as any).text || (value as any).summary || ''
+            : '';
+      if (!text) return;
+      let nextText = text;
+      if (isSnapshot) {
+        if (text.startsWith(emittedReasoning)) nextText = text.slice(emittedReasoning.length);
+        else if (emittedReasoning.startsWith(text)) return;
+        emittedReasoning = text;
+      } else {
+        emittedReasoning += text;
+      }
+      if (!nextText) return;
+      queue.push({ type: 'reasoning', reasoning: nextText });
+      if (resolveNext) resolveNext();
+    };
+
     proc.stdout.on('data', (chunk: Buffer) => {
       buffer += chunk.toString('utf-8');
       const lines = buffer.split('\n');
@@ -213,14 +238,26 @@ export class CodexAdapter implements AIProvider {
               event.delta?.text ?? event.delta?.content ?? event.item.text ?? event.item.content,
               !event.delta
             );
-          } else if (event.type === 'item.started' && event.item && event.item.type !== 'agent_message') {
+          } else if (
+            (event.type === 'item.updated' || event.type === 'item.delta') &&
+            event.item?.type === 'agent_reasoning'
+          ) {
+            pushReasoning(
+              event.delta?.text ?? event.delta?.summary ?? event.item.text ?? event.item.summary,
+              !event.delta
+            );
+          } else if (event.type === 'item.started' && event.item && event.item.type !== 'agent_message' && event.item.type !== 'agent_reasoning') {
             const toolDesc = event.item.command || event.item.query || event.item.path || JSON.stringify(event.item.args || {});
             queue.push({
               type: 'reasoning',
               reasoning: `\n\n🔧 **Action:** [${event.item.type}] ${toolDesc}\n`
             });
             if (resolveNext) resolveNext();
-          } else if (event.type === 'item.completed' && event.item && event.item.type !== 'agent_message') {
+          } else if (event.type === 'item.completed' && event.item?.type === 'agent_reasoning') {
+            pushReasoning(event.item.text ?? event.item.summary, true);
+            queue.push({ type: 'reasoning', reasoning: '\n' });
+            if (resolveNext) resolveNext();
+          } else if (event.type === 'item.completed' && event.item && event.item.type !== 'agent_message' && event.item.type !== 'agent_reasoning') {
             const status = event.item.exit_code === 0 ? 'Success' : 'Completed';
             queue.push({
               type: 'reasoning',
