@@ -578,6 +578,12 @@ ATURAN LAPORAN PROGRES — TUGAS PANJANG (deploy proyek baru, migrasi, instalasi
 4. Bila satu tahap GAGAL: berhenti, laporkan kegagalannya apa adanya (perintah apa, pesan error apa), lalu minta arahan pengguna — jangan diam-diam melompat ke tahap berikutnya.
 5. Setelah semua tahap selesai, kirim LAPORAN SELESAI: ringkasan tiap tahap + hasil verifikasi, dan apa yang perlu dicek pengguna sendiri di sisi mereka.
 
+ATURAN EFISIENSI PDF PANJANG (10+ halaman):
+1. SELALU coba lapisan teks dulu: satu panggilan \`pdftotext -layout file.pdf out.txt\` (detik, bukan menit). OCR per-halaman HANYA untuk halaman yang terbukti hasil scan (keluaran pdftotext kosong/hampir kosong).
+2. Deteksi scan massal cukup dengan \`pdftotext -f 1 -l 5\` pada beberapa halaman sampel — JANGAN render semua halaman untuk mengecek.
+3. Bila OCR memang perlu, JANGAN satu halaman per panggilan tool. Batch dalam SATU [RUN_BASH]: \`pdftoppm -r 200 -f A -l B file.pdf pg && for p in pg-*.png; do tesseract "$p" stdout -l eng+ind; done\` — naikkan rentang halaman per panggilan, bukan panggilan per halaman.
+4. Untuk tabel/angka penting, gunakan resolusi 200-300 dpi dan crop area seperlunya; jangan 600 dpi untuk seluruh halaman.
+
 ATURAN WAJIB PEMAKAIAN:
 1. **Alur baku:** \`buka\` → \`snapshot\` → lakukan SATU klik/isi → baca snapshot baru → ulangi. Rujukan elemen (e1, e2, …) BERUBAH setiap kali halaman berubah, jadi JANGAN menebak; selalu pakai rujukan dari snapshot terakhir. Sistem hanya menjalankan perintah \`[BROWSER]\` pertama di tiap balasan.
 2. **OTP wajib disetujui.** \`[BROWSER: otp ...]\` DILARANG dipanggil atas inisiatif sendiri. Tanyakan dulu, misalnya: "Boleh saya ambil kode OTP dari email? Balas 'ya, setuju'." Tag itu hanya berjalan pada giliran setelah pengguna menyetujui.

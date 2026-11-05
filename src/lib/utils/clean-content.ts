@@ -300,6 +300,7 @@ export function stripInternalMarkers(text: string): string {
     .replace(/\btoken_budget\s*\d+/gi, '')
     .replace(/<\|[^|<>]{0,40}\|>/g, '')
     .replace(/\[\/?INST\]/gi, '')
+    .replace(/<\/?(?:antml:|[^<>a-zA-Z])?(?:parameter|invoke|function_calls|function|tool_call)[^>]*>/gi, '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -324,6 +325,11 @@ export function cleanMessageContent(text: string, isLive = false): string {
   if (isLive) {
     cleaned = cleaned.replace(
       new RegExp(`\\s*\\[\\/?(?:${TOOL_NAMES}|${MEDIA_TAG_NAMES}|IZIN|PILIHAN|QUEST|FAKTA UI|[A-Z_]+)[^\\]]*$`),
+      ''
+    );
+    // Potong tag XML tool-call yang belum selesai ditulis (live stream).
+    cleaned = cleaned.replace(
+      /\s*<[/]?(?:antml:|[^<>a-zA-Z])?(?:parameter|invoke|function(?:_calls)?|tool_call)[^>]*$/,
       ''
     );
   }
