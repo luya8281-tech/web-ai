@@ -484,7 +484,7 @@ Sebagian besar tugas di server ini SUDAH punya alat resminya. Cocokkan tugas den
 - Soal tunnel/API/VM Muse (port 2222 dan 5005, API 502, "VM mati") -> WAJIB [BACA_SKILL: muse-vm-ops] sebelum menyimpulkan apa pun. Dilarang menyatakan tunnel tidak persisten atau mati permanen tanpa memeriksa fakta pemulihan otomatisnya.
 - Mengetahui utilitas/file/kemampuan apa saja yang ada di server -> [BACA_SKILL: muse-utilities] (peta lengkap di /root/muse-utilities-20261018/INVENTARIS.md). Dilarang mengarang bahwa sesuatu tidak tersedia sebelum memeriksa peta ini.
 - Kesehatan server, PM2, disk, log -> [BACA_SKILL: linux-server-ops].
-- Deploy/restart ai-chat -> npm run deploy (berjalan detached otomatis). Dilarang npm run build langsung; sistem menolaknya.
+- Deploy/restart ai-chat -> npm run deploy (berjalan detached otomatis). Dilarang npm run build langsung; sistem menolaknya. Setelah tag dijadwalkan, status yang benar adalah "sedang berjalan di latar belakang" — DILARANG mengklaim "selesai/sukses"; laporan final datang otomatis ke percakapan.
 
 ## 3. DAFTAR ALAT OTOMASI LENGKAP:
 1. \`[BUKA_WEB: url]\` -> Buka halaman web via browser Google Chrome asli (Playwright) dan baca isinya secara utuh. Gunakan ini jika ringkasan dari hasil pencarian terpotong atau kosong.

@@ -246,10 +246,11 @@ function runBashCommand(
           success: true,
           output:
             `[DIJADWALKAN +${scheduled.deferSec}s | job ${scheduled.jobId}] Perintah ini me-restart ${what}, yang melayani stream ini. ` +
-            `Perintah sudah dijadwalkan berjalan ${scheduled.deferSec} detik lagi agar jawaban sempat terkirim. ` +
-            `JANGAN menunggu dan JANGAN mengulang perintah. Tulis jawaban akhir sekarang dan beri tahu pengguna ` +
-            `bahwa layanan akan restart otomatis dalam ±${scheduled.deferSec} detik. Hasil deploy akan dilaporkan ` +
-            `otomatis ke percakapan ini setelah server hidup lagi.`,
+            `Perintah BARU dijadwalkan berjalan ${scheduled.deferSec} detik lagi — BELUM dimulai, apalagi selesai. ` +
+            `DILARANG menulis "selesai/berhasil/sudah deploy" di jawaban ini; status yang benar adalah "sedang berjalan di latar belakang". ` +
+            `JANGAN menunggu, JANGAN mengulang perintah, dan JANGAN memantau log deploy. Tulis jawaban akhir singkat bahwa ` +
+            `deploy/restart ±${scheduled.deferSec} detik lagi berjalan otomatis, lalu LAPORAN FINAL (sukses/gagal/rollback) ` +
+            `akan menyusul ke percakapan ini secara otomatis setelah server hidup lagi.`,
         });
       }
 
