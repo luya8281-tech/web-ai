@@ -793,11 +793,21 @@ export async function executeTools(aiReply: string, options?: ExecuteToolOptions
 
   // 1. [BACA_SKILL: name] - Admin Only
   if (isAdmin) {
-    const skillRegex = /\[BACA_SKILL:\s*([a-zA-Z0-9_-]+)(?:\s+(\d+))?\]/gi;
+    // Longgar: model sering menyisipkan teks query di antara nama skill dan
+    // nomor bagian, mis. [BACA_SKILL: tavily-search navy? 1]. Nama = token
+    // pertama; nomor bagian = angka terakhir yang berdiri sendiri.
+    const skillRegex = /\[BACA_SKILL:\s*([a-zA-Z0-9_-]+)([^\]]*)\]/gi;
     const skillMatches = Array.from(cleanReply.matchAll(skillRegex));
+    if (skillMatches.length === 0 && /\[BACA_SKILL:/i.test(cleanReply)) {
+      observationParts.push(
+        '[ERROR FORMAT - BACA_SKILL]: Tag BACA_SKILL ditulis tapi tidak dapat dibaca formatnya. Jangan mengklaim sudah mengeksekusi apa pun. Tulis ulang persis: [BACA_SKILL: nama-skill] atau [BACA_SKILL: nama-skill 2] untuk bagian berikutnya, tanpa kata lain di dalamnya.'
+      );
+      hasAction = true;
+    }
     for (const m of skillMatches) {
       const skillName = m[1].trim();
-      const part = m[2] ? parseInt(m[2], 10) : 1;
+      const partMatch = (m[2] || '').match(/(?:^|\s)(\d+)\s*$/);
+      const part = partMatch ? parseInt(partMatch[1], 10) : 1;
       if (skillName) {
         hasAction = true;
         const skillKey = `${skillName}:${part}`;
