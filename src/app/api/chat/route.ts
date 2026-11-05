@@ -483,7 +483,7 @@ ${skillsText}
 
 ## 2c. PETA RUTE UTILITAS — PERIKSA INI DULU SEBELUM MENGARANG CARA SENDIRI
 Sebagian besar tugas di server ini SUDAH punya alat resminya. Cocokkan tugas dengan peta ini sebelum menulis skrip atau menyimpulkan sesuatu tidak bisa:
-- Subtitle/transkrip video (TikTok, YouTube, dll.) -> [AMBIL_SUBTITEL: url]. Alat ini mentranskrip lokal dengan Whisper dan TIDAK butuh cookie/login; dilarang menyimpulkan gagal karena cookie.
+- Subtitle/transkrip video (TikTok, YouTube, Threads, X/Twitter, Facebook Reels, Bluesky, dll.) -> [AMBIL_SUBTITEL: url]. Alat ini mentranskrip lokal dengan Whisper dan TIDAK butuh cookie/login; dilarang menyimpulkan gagal karena cookie. Video Threads ditangkap via browser headless (yt-dlp tidak mendukung Threads) — tetap panggil tool ini untuk URL threads.com/threads.net.
 - Unduh video/foto TikTok atau Instagram -> pakai TikTok Engine / Instagram Engine di seksi 2b dan skill ig; jangan merakit ulang yt-dlp/ffmpeg dari nol.
 - Membaca halaman yang memblokir (Cloudflare, 403, challenge) -> [AMBIL_HALAMAN: url]. Interaksi/login/klik -> [BROWSER] (patuhi ATURAN KEMUDI ALAT di seksi 3b). Dilarang menulis skrip scraping/solver browser sendiri — termasuk pola dari skill playwright-scraping-ninja; skill itu referensi baca saja, bukan jalur eksekusi.
 - Soal tunnel/API/VM Muse (port 2222 dan 5005, API 502, "VM mati") -> WAJIB [BACA_SKILL: muse-vm-ops] sebelum menyimpulkan apa pun. Dilarang menyatakan tunnel tidak persisten atau mati permanen tanpa memeriksa fakta pemulihan otomatisnya.
@@ -507,7 +507,7 @@ Sebagian besar tugas di server ini SUDAH punya alat resminya. Cocokkan tugas den
 10. \`[RINGKAS_YOUTUBE: url]\` -> Ambil metadata dan transkrip video YouTube.
 11. \`[BACA_OCR: path]\` -> Scan teks dari gambar menggunakan OCR.
 12. \`[BUAT_PDF: isi_atau_html | nama_file.pdf]\` -> Render dokumen PDF berstandar A4 asli.
-13. \`[AMBIL_SUBTITEL: url]\` -> Ambil subtitel/teks transkrip video (TikTok, YouTube, dan situs video lain) via transkripsi lokal Whisper di server.
+13. \`[AMBIL_SUBTITEL: url]\` -> Ambil subtitel/teks transkrip video (TikTok, YouTube, Threads, X/Twitter, Facebook Reels, Bluesky, dan situs video lain) via transkripsi lokal Whisper di server.
     - **WAJIB IZIN DULU:** JANGAN panggil tag ini atas inisiatif sendiri. Tanyakan lebih dulu apakah pengguna pemilik video atau berhak/berizin atasnya (bukan konten pihak lain tanpa izin). Tag ini hanya akan berjalan pada giliran setelah pengguna menjawab setuju.
 13b. \`[AMBIL_HALAMAN: url]\` -> Baca isi halaman web yang dilindungi Cloudflare/anti-bot (mis. tikvib.com) TANPA browser, via ekstraksi server (fetch langsung -> WARP -> Jina Reader). Pakai tag ini bila [BUKA_WEB] hanya mengembalikan halaman verifikasi/challenge, atau untuk situs yang dikenal memblokir IP/browser server. Hanya membaca teks halaman publik — tidak bisa klik, login, atau mengambil screenshot.
 14. \`[BUAT_FILE: nama_file.ext | isi_file]\` -> **PEMBUAT BERKAS UNIVERSAL:** Buat berkas baru apa saja (.xlsx, .docx, .lua, .txt, .csv, .py, .pdf, .json, .sh, .sql, dll) langsung ke server dan otomatis kirim kartu unduhan interaktif ke pengguna.
