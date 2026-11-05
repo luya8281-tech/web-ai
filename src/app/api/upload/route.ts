@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     }
 
     const processed = await FileProcessor.processUploadedFile(file);
-    return NextResponse.json({ file: processed }, { status: 201 });
+    return NextResponse.json({ file: processed, attachment: processed }, { status: 201 });
   } catch (err: any) {
     console.error('[Upload Error]', err);
     return NextResponse.json({ error: err.message || 'File upload failed' }, { status: 400 });

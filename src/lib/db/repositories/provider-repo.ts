@@ -158,7 +158,7 @@ export class ProviderRepository {
       query += ` AND m.provider_id = ?`;
       params.push(providerId);
     }
-    query += ` ORDER BY m.is_default DESC, p.name ASC, m.display_name ASC`;
+    query += ` ORDER BY m.display_name COLLATE NOCASE ASC`;
 
     const rows = db.prepare(query).all(...params) as any[];
     return rows.map(r => {
@@ -239,10 +239,14 @@ export class ProviderRepository {
         max_output_tokens = excluded.max_output_tokens,
         capabilities = excluded.capabilities,
         pricing = excluded.pricing,
+        is_enabled = 1,
         updated_at = excluded.updated_at
     `);
 
     const insertMany = db.transaction((models: Partial<Model>[]) => {
+      // Disable all existing models for this provider first.
+      db.prepare('UPDATE models SET is_enabled = 0 WHERE provider_id = ?').run(providerId);
+      
       for (const m of models) {
         if (!m.modelId) continue;
         const id = `${providerId}:${m.modelId}`;

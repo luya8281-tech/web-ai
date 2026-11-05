@@ -1,10 +1,20 @@
-import { Model, ChatStreamChunk } from '@/types/chat';
+import { Model, ChatStreamChunk, NativeToolCall } from '@/types/chat';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   name?: string;
   images?: string[]; // base64 or public URLs
+}
+
+/** Skema function ala OpenAI, dikirim pada field `tools`. */
+export interface NativeToolSpec {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, any>;
+  };
 }
 
 export interface ChatRequest {
@@ -17,12 +27,14 @@ export interface ChatRequest {
   reasoningEffort?: string;
   stream?: boolean;
   abortSignal?: AbortSignal;
+  tools?: NativeToolSpec[];
 }
 
 export interface ChatResponse {
   content: string;
   reasoningContent?: string;
   model: string;
+  toolCalls?: NativeToolCall[];
   usage?: {
     promptTokens: number;
     completionTokens: number;

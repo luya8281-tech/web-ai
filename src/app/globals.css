@@ -3,7 +3,9 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  /* 1. Light: Claude Warm Paper */
+  :root,
+  [data-theme="light"] {
     --background: #fbfaf8;
     --foreground: #1c1b18;
     --card: #ffffff;
@@ -17,10 +19,10 @@
     --secondary-foreground: #1c1b18;
     --secondary-hover: #eae7e0;
     --muted: #f3f1ec;
-    --muted-foreground: #7d7a72;
+    --muted-foreground: #6e6b63;
     --accent: #f3f1ec;
     --accent-foreground: #1c1b18;
-    --destructive: #ef4444;
+    --destructive: #dc2626;
     --destructive-foreground: #ffffff;
     --border: #e6e3dc;
     --input: #e6e3dc;
@@ -33,7 +35,9 @@
     --radius: 0.75rem;
   }
 
-  .dark {
+  /* 2. Dark: Claude Obsidian (Default Dark) */
+  .dark,
+  [data-theme="dark"] {
     --background: #111110;
     --foreground: #ede8df;
     --card: #191918;
@@ -47,7 +51,7 @@
     --secondary-foreground: #ede8df;
     --secondary-hover: #2b2b27;
     --muted: #21211e;
-    --muted-foreground: #8e8b82;
+    --muted-foreground: #969288;
     --accent: #21211e;
     --accent-foreground: #ede8df;
     --destructive: #ef4444;
@@ -61,6 +65,156 @@
     --sidebar-accent: #191918;
     --sidebar-accent-foreground: #ede8df;
   }
+
+  /* 3. Midnight: Deep Navy Slate */
+  [data-theme="midnight"] {
+    --background: #0c1018;
+    --foreground: #e5eaf3;
+    --card: #131926;
+    --card-foreground: #e5eaf3;
+    --popover: #131926;
+    --popover-foreground: #e5eaf3;
+    --primary: #5b8def;
+    --primary-foreground: #ffffff;
+    --primary-hover: #739ff5;
+    --secondary: #192132;
+    --secondary-foreground: #e5eaf3;
+    --secondary-hover: #222c42;
+    --muted: #192132;
+    --muted-foreground: #8f9bb3;
+    --accent: #192132;
+    --accent-foreground: #e5eaf3;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #232d42;
+    --input: #232d42;
+    --ring: #5b8def;
+    --sidebar: #080b11;
+    --sidebar-foreground: #e5eaf3;
+    --sidebar-border: #1b2334;
+    --sidebar-accent: #141b29;
+    --sidebar-accent-foreground: #e5eaf3;
+  }
+
+  /* 4. Nord: Polar Slate */
+  [data-theme="nord"] {
+    --background: #1e222a;
+    --foreground: #e5e9f0;
+    --card: #272c36;
+    --card-foreground: #e5e9f0;
+    --popover: #272c36;
+    --popover-foreground: #e5e9f0;
+    --primary: #81a1c1;
+    --primary-foreground: #14171d;
+    --primary-hover: #88c0d0;
+    --secondary: #2e3440;
+    --secondary-foreground: #e5e9f0;
+    --secondary-hover: #3b4252;
+    --muted: #2e3440;
+    --muted-foreground: #9aa5b8;
+    --accent: #2e3440;
+    --accent-foreground: #e5e9f0;
+    --destructive: #bf616a;
+    --destructive-foreground: #ffffff;
+    --border: #383f4e;
+    --input: #383f4e;
+    --ring: #81a1c1;
+    --sidebar: #181b22;
+    --sidebar-foreground: #e5e9f0;
+    --sidebar-border: #2c323e;
+    --sidebar-accent: #252a34;
+    --sidebar-accent-foreground: #e5e9f0;
+  }
+
+  /* 5. Mocha: Warm Espresso */
+  [data-theme="mocha"] {
+    --background: #171314;
+    --foreground: #f2e9e4;
+    --card: #211b1d;
+    --card-foreground: #f2e9e4;
+    --popover: #211b1d;
+    --popover-foreground: #f2e9e4;
+    --primary: #dca06d;
+    --primary-foreground: #171314;
+    --primary-hover: #e6b081;
+    --secondary: #292224;
+    --secondary-foreground: #f2e9e4;
+    --secondary-hover: #352c2f;
+    --muted: #292224;
+    --muted-foreground: #a89993;
+    --accent: #292224;
+    --accent-foreground: #f2e9e4;
+    --destructive: #e06c75;
+    --destructive-foreground: #ffffff;
+    --border: #342b2d;
+    --input: #342b2d;
+    --ring: #dca06d;
+    --sidebar: #110e0f;
+    --sidebar-foreground: #f2e9e4;
+    --sidebar-border: #282123;
+    --sidebar-accent: #211b1d;
+    --sidebar-accent-foreground: #f2e9e4;
+  }
+
+  /* 6. Rose: Velvet Dusk */
+  [data-theme="rose"] {
+    --background: #151116;
+    --foreground: #f2e9f0;
+    --card: #1f1921;
+    --card-foreground: #f2e9f0;
+    --popover: #1f1921;
+    --popover-foreground: #f2e9f0;
+    --primary: #d97798;
+    --primary-foreground: #151116;
+    --primary-hover: #e38ca9;
+    --secondary: #28202b;
+    --secondary-foreground: #f2e9f0;
+    --secondary-hover: #342938;
+    --muted: #28202b;
+    --muted-foreground: #a696a4;
+    --accent: #28202b;
+    --accent-foreground: #f2e9f0;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #332936;
+    --input: #332936;
+    --ring: #d97798;
+    --sidebar: #0f0c10;
+    --sidebar-foreground: #f2e9f0;
+    --sidebar-border: #261e28;
+    --sidebar-accent: #1f1921;
+    --sidebar-accent-foreground: #f2e9f0;
+  }
+
+  /* 7. Sand: Warm Sepia Book */
+  [data-theme="sand"] {
+    --background: #f4efe6;
+    --foreground: #26221e;
+    --card: #faf6f0;
+    --card-foreground: #26221e;
+    --popover: #faf6f0;
+    --popover-foreground: #26221e;
+    --primary: #a85032;
+    --primary-foreground: #ffffff;
+    --primary-hover: #914227;
+    --secondary: #eae3d7;
+    --secondary-foreground: #26221e;
+    --secondary-hover: #dfd7c8;
+    --muted: #eae3d7;
+    --muted-foreground: #6b6359;
+    --accent: #eae3d7;
+    --accent-foreground: #26221e;
+    --destructive: #c93b2b;
+    --destructive-foreground: #ffffff;
+    --border: #dcd3c4;
+    --input: #dcd3c4;
+    --ring: #a85032;
+    --sidebar: #ece6da;
+    --sidebar-foreground: #26221e;
+    --sidebar-border: #dcd3c4;
+    --sidebar-accent: #e2dacb;
+    --sidebar-accent-foreground: #26221e;
+  }
 }
 
 * {
@@ -73,13 +227,42 @@ body {
   font-feature-settings: "rlig" 1, "calt" 1;
 }
 
-/* Claude Signature Serif Font for Reading Text */
-.font-serif,
+/* Font Size Scaling */
+html[data-font-size="small"] {
+  font-size: 14.5px;
+}
+html[data-font-size="normal"] {
+  font-size: 16px;
+}
+html[data-font-size="large"] {
+  font-size: 17.5px;
+}
+
+/* Default Serif typography for reading text, overridable via data-font-family */
 .prose,
 .prose p,
 .prose li,
-.prose blockquote {
-  font-family: var(--font-serif), Georgia, Cambria, "Times New Roman", Times, serif;
+.prose span,
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif !important;
+}
+
+html[data-font-family="sans"] .prose,
+html[data-font-family="sans"] .prose p,
+html[data-font-family="sans"] .prose li,
+html[data-font-family="sans"] .prose span,
+html[data-font-family="sans"] .prose h1,
+html[data-font-family="sans"] .prose h2,
+html[data-font-family="sans"] .prose h3,
+html[data-font-family="sans"] .prose h4 {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+html[data-font-family="mono"] .prose,
+html[data-font-family="mono"] .prose p,
+html[data-font-family="mono"] .prose li,
+html[data-font-family="mono"] .prose span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 
 /* Custom minimal scrollbar */
@@ -120,16 +303,16 @@ body {
   display: inline !important;
 }
 .prose h1, .prose h2, .prose h3, .prose h4 {
-  margin-top: 1.1em !important;
-  margin-bottom: 0.35em !important;
+  margin-top: 1.15em !important;
+  margin-bottom: 0.4em !important;
   font-weight: 600 !important;
 }
 .prose ul, .prose ol {
   margin-top: 0.3em !important;
-  margin-bottom: 0.6em !important;
+  margin-bottom: 0.65em !important;
 }
 
-/* User Message Bubble - Claude Modern Sans Typography */
+/* User Message Bubble - Sans Typography */
 .user-bubble,
 .user-bubble .prose,
 .user-bubble .prose p,
@@ -138,6 +321,58 @@ body {
 }
 
 .user-bubble pre,
-.user-bubble code {
+.user-bubble code,
+.prose pre,
+.prose code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+/* Mascot & Activity Animations */
+@keyframes breathe {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-2px) scale(1.02); }
+}
+@keyframes gesture {
+  0%, 100% { transform: rotate(0deg) translateY(0px); }
+  25% { transform: rotate(-6deg) translateY(-2px); }
+  75% { transform: rotate(6deg) translateY(-1px); }
+}
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes abs-spin {
+  0%   { transform: rotate(0deg) scale(1); }
+  50%  { transform: rotate(180deg) scale(1.04); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes abs-petal {
+  0%, 100% { transform: scaleY(0.5); opacity: 0.6; }
+  50%      { transform: scaleY(1);   opacity: 1; }
+}
+@keyframes shimmer-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+@keyframes text-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.animate-breathe { animation: breathe 4s ease-in-out infinite; }
+.animate-gesture { animation: gesture 1.6s ease-in-out infinite; }
+.animate-spin-slow { animation: spin-slow 4s linear infinite; }
+.abs-spinner { animation: abs-spin 3.2s cubic-bezier(0.45, 0.05, 0.35, 0.95) infinite; }
+.abs-petal {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: abs-petal 1.9s ease-in-out infinite;
+}
+.shimmer-bar { animation: shimmer-sweep 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.text-shimmer {
+  background: linear-gradient(90deg, currentColor 35%, var(--primary) 50%, currentColor 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2.4s linear infinite;
 }

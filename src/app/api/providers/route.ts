@@ -9,7 +9,7 @@ const CreateProviderSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   baseUrl: z.string().min(1),
-  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock', 'antigravity-agent']).default('openai-compatible'),
+  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock', 'antigravity-agent', 'codex-cli', 'opencode-cli']).default('openai-compatible'),
   apiKey: z.string().optional(),
   isDefault: z.boolean().optional(),
 });

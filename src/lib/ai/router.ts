@@ -4,10 +4,28 @@ import { OpenAICompatibleAdapter } from './adapters/openai-adapter';
 import { AnthropicAdapter } from './adapters/anthropic-adapter';
 import { MockDevAdapter } from './adapters/mock-adapter';
 import { AntigravityAgentAdapter } from './adapters/antigravity-adapter';
+import { CodexAdapter } from './adapters/codex-adapter';
+import { OpenCodeAdapter } from './adapters/opencode-adapter';
 import { ChatStreamChunk } from '@/types/chat';
 
 export class AIRouter {
-  static getProviderInstance(providerId: string): AIProvider {
+  static normalizeProviderAndModel(providerId: string, modelId?: string): { providerId: string; modelId?: string } {
+    if (providerId === 'harbor' || providerId === 'tokenharbor') {
+      const normalizedModel = modelId && !modelId.startsWith('tokenharbor/')
+        ? `tokenharbor/${modelId}`
+        : modelId;
+      return { providerId: '9router', modelId: normalizedModel };
+    }
+    if (providerId === '9router' && modelId) {
+      if (modelId.startsWith('wf/') && !modelId.startsWith('wf/wf/')) {
+        return { providerId: '9router', modelId: `wf/${modelId}` };
+      }
+    }
+    return { providerId, modelId };
+  }
+
+  static getProviderInstance(rawProviderId: string): AIProvider {
+    const { providerId } = this.normalizeProviderAndModel(rawProviderId);
     // Check if Antigravity native agent
     if (providerId === 'antigravity') {
       return new AntigravityAgentAdapter();
@@ -16,6 +34,10 @@ export class AIRouter {
     // Check if mock
     if (providerId === 'mock-dev') {
       return new MockDevAdapter();
+    }
+
+    if (providerId === 'opencode') {
+      return new OpenCodeAdapter();
     }
 
     // Check if VPS AI from environment
@@ -36,8 +58,25 @@ export class AIRouter {
     const apiKey = ProviderRepository.getProviderApiKey(providerId) || undefined;
 
     switch (providerRecord.protocol) {
+      case 'codex-cli':
+        return new CodexAdapter({
+          id: providerRecord.id,
+          name: providerRecord.name,
+          apiKey
+        });
+
+      case 'opencode-cli':
+        return new OpenCodeAdapter({
+          id: providerRecord.id,
+          name: providerRecord.name,
+        });
+
       case 'antigravity-agent':
-        return new AntigravityAgentAdapter();
+        return new AntigravityAgentAdapter({
+          id: providerRecord.id,
+          name: providerRecord.name,
+          apiKey
+        });
 
       case 'anthropic-compatible':
         return new AnthropicAdapter({
@@ -62,10 +101,12 @@ export class AIRouter {
   }
 
   static async chat(
-    providerId: string,
+    rawProviderId: string,
     request: ChatRequest
   ): Promise<ChatResponse> {
     const startTime = Date.now();
+    const { providerId, modelId } = this.normalizeProviderAndModel(rawProviderId, request.model);
+    if (modelId) request = { ...request, model: modelId };
     const provider = this.getProviderInstance(providerId);
 
     try {
@@ -94,10 +135,12 @@ export class AIRouter {
   }
 
   static async *streamChat(
-    providerId: string,
+    rawProviderId: string,
     request: ChatRequest
   ): AsyncIterable<ChatStreamChunk> {
     const startTime = Date.now();
+    const { providerId, modelId } = this.normalizeProviderAndModel(rawProviderId, request.model);
+    if (modelId) request = { ...request, model: modelId };
     const provider = this.getProviderInstance(providerId);
 
     try {

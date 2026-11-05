@@ -16,7 +16,6 @@ export default function ChatPage() {
     loadSettings();
     loadInitialData();
 
-    // On mobile devices, ensure the sidebar drawer starts closed so user directly sees the chat
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       setSidebarOpen(false);
     }
@@ -24,10 +23,10 @@ export default function ChatPage() {
 
   return (
     <main className="flex w-full h-[100dvh] overflow-hidden">
-      {/* Sidebar: Navigation, sessions, projects */}
+      {/* Left Sidebar: Navigation, sessions, projects */}
       <Sidebar />
 
-      {/* Main Chat Area */}
+      {/* Center Chat Area (includes inline Live Web / CLI Panel & Composer) */}
       <ChatContainer />
     </main>
   );

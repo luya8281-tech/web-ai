@@ -1,8 +1,11 @@
 'use client';
 
+import { PersonaSelector } from './persona-selector';
+
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Menu,
+  RotateCw,
   Plus,
   Settings,
   BookOpen,
@@ -23,6 +26,7 @@ export const TopNav: React.FC = () => {
     activeConversation,
     messages,
     newChat,
+    selectConversation,
     pinConversation,
     projects,
     activeProjectId,
@@ -151,6 +155,8 @@ export const TopNav: React.FC = () => {
 
       {/* Right: Compact Mobile Controls + Desktop Tools */}
       <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        <PersonaSelector />
+
         {/* Claude-Style Chatbot Model Selector Pill */}
         <div className="relative" ref={dropdownRef}>
           <button
@@ -187,36 +193,45 @@ export const TopNav: React.FC = () => {
               </div>
 
               <div className="max-h-60 overflow-y-auto py-1 divide-y divide-border/30">
-                {models.slice(0, 12).map((m) => {
-                  const isSelected = m.modelId === activeModelId || m.id === activeModelId;
-                  const provName =
-                    providers.find((p) => p.id === m.providerId)?.name || m.providerId;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => {
-                        setProviderAndModel(m.providerId, m.modelId);
-                        setModelDropdownOpen(false);
-                      }}
-                      className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 transition-colors ${
-                        isSelected
-                          ? 'bg-primary/10 text-primary font-semibold'
-                          : 'text-foreground hover:bg-muted/60'
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate">{m.displayName || m.name}</div>
-                        <div className="text-[10px] text-muted-foreground font-mono truncate">
-                          {provName}
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-                      )}
-                    </button>
+                {(() => {
+                  const currentModel = models.find(
+                    (m) => m.modelId === activeModelId || m.id === activeModelId
                   );
-                })}
+                  const displayList = currentModel
+                    ? [currentModel, ...models.filter((m) => m.id !== currentModel.id).slice(0, 15)]
+                    : models.slice(0, 15);
+
+                  return displayList.map((m) => {
+                    const isSelected = m.modelId === activeModelId || m.id === activeModelId;
+                    const provName =
+                      providers.find((p) => p.id === m.providerId)?.name || m.providerId;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setProviderAndModel(m.providerId, m.modelId);
+                          setModelDropdownOpen(false);
+                        }}
+                        className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 transition-colors ${
+                          isSelected
+                            ? 'bg-primary/10 text-primary font-semibold'
+                            : 'text-foreground hover:bg-muted/60'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate">{m.displayName || m.name}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono truncate">
+                            {provName}
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                        )}
+                      </button>
+                    );
+                  });
+                })()}
               </div>
 
               <div className="border-t border-border mt-1 pt-1 px-1.5 space-y-0.5">
@@ -291,6 +306,24 @@ export const TopNav: React.FC = () => {
           <KeyRound className="w-3.5 h-3.5 text-primary" />
           <span className="hidden md:inline">Vault</span>
         </button>
+
+        {/* Segarkan Percakapan Aktif */}
+        {activeConversation && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (activeConversation?.id) {
+                await selectConversation(activeConversation.id);
+                addToast('Percakapan telah disegarkan.', 'success');
+              }
+            }}
+            className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg border border-border bg-card hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Segarkan riwayat percakapan ini"
+            aria-label="Segarkan riwayat percakapan ini"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+          </button>
+        )}
 
         {/* Pin & Export when conversation is active (Desktop) */}
         {activeConversation && (

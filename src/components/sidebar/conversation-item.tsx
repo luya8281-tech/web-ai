@@ -2,13 +2,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  MessageSquare,
   MoreHorizontal,
   Pin,
   Archive,
   Trash2,
   Edit2,
-  Share2,
+  Download,
   Check,
   X,
 } from 'lucide-react';
@@ -39,7 +38,6 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
 
   const isActive = activeConversationId === conversation.id;
 
-  // Close context menu on outside click
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -53,7 +51,6 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
   const handleSelect = () => {
     if (!isRenaming) {
       selectConversation(conversation.id);
-      // On mobile screens, auto-close drawer
       if (window.innerWidth < 768) {
         setSidebarOpen(false);
       }
@@ -83,27 +80,25 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
       a.download = `${conversation.title}.${format === 'markdown' ? 'md' : format}`;
       a.click();
       URL.revokeObjectURL(url);
-      addToast(`Exported ${format.toUpperCase()}`, 'success');
-    } catch (e) {
-      addToast('Export failed', 'error');
+      addToast(`Diekspor ke ${format.toUpperCase()}`, 'success');
+    } catch {
+      addToast('Gagal mengekspor percakapan', 'error');
     }
   };
 
   return (
     <div
-      className={`group relative flex items-center justify-between rounded-xl px-3 py-2.5 sm:py-2 text-xs font-medium transition-colors cursor-pointer min-h-[40px] ${
+      className={`group relative flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition-colors cursor-pointer min-h-[34px] ${
         isActive
-          ? 'bg-muted text-foreground'
-          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+          ? 'bg-sidebar-accent text-sidebar-foreground font-semibold before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-primary'
+          : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground font-normal'
       }`}
       onClick={handleSelect}
     >
-      {/* Icon & Title */}
-      <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-1">
-        {conversation.pinned ? (
-          <Pin className="w-3.5 h-3.5 text-primary shrink-0 rotate-45" />
-        ) : (
-          <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-70" />
+      {/* Title & Optional Pin Indicator */}
+      <div className="flex items-center gap-2 min-w-0 flex-1 mr-1">
+        {conversation.pinned && (
+          <Pin className="w-3 h-3 text-primary shrink-0 rotate-45" />
         )}
 
         {isRenaming ? (
@@ -117,11 +112,12 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
               value={titleInput}
               onChange={(e) => setTitleInput(e.target.value)}
               autoFocus
-              className="w-full bg-background border border-primary px-2 py-1 rounded text-xs text-foreground focus:outline-none"
+              className="w-full bg-background border border-primary px-2 py-0.5 rounded text-xs text-foreground focus:outline-none"
             />
             <button
               type="submit"
-              className="p-1 text-emerald-500 hover:text-emerald-400 touch-manipulation"
+              className="p-1 text-emerald-600 dark:text-emerald-400 touch-manipulation"
+              aria-label="Simpan judul"
             >
               <Check className="w-3.5 h-3.5" />
             </button>
@@ -129,12 +125,13 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
               type="button"
               onClick={() => setIsRenaming(false)}
               className="p-1 text-muted-foreground hover:text-foreground touch-manipulation"
+              aria-label="Batal"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           </form>
         ) : (
-          <span className="truncate">{conversation.title || 'Untitled'}</span>
+          <span className="truncate leading-snug">{conversation.title || 'Tanpa Judul'}</span>
         )}
       </div>
 
@@ -142,20 +139,21 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
       {!isRenaming && (
         <div className="relative shrink-0" ref={menuRef} onClick={(e) => e.stopPropagation()}>
           <button
+            type="button"
             onClick={() => setMenuOpen(!menuOpen)}
-            className={`p-1.5 sm:p-1 rounded-md hover:bg-muted-foreground/10 text-muted-foreground hover:text-foreground transition-opacity touch-manipulation ${
-              isActive || menuOpen ? 'opacity-100' : 'opacity-70 sm:opacity-0 sm:group-hover:opacity-100'
+            className={`p-1 rounded-md hover:bg-foreground/10 text-muted-foreground hover:text-foreground transition-opacity touch-manipulation ${
+              isActive || menuOpen ? 'opacity-100' : 'opacity-60 sm:opacity-0 sm:group-hover:opacity-100'
             }`}
-            title="Options"
-            aria-label="Conversation options"
+            title="Opsi percakapan"
+            aria-label="Opsi percakapan"
           >
             <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
 
-          {/* Dropdown Options */}
           {menuOpen && (
-            <div className="absolute right-0 top-6 w-36 rounded-lg border border-border bg-card shadow-lg py-1 z-30 animate-fade-in text-xs">
+            <div className="absolute right-0 top-6 w-40 rounded-lg border border-border bg-card shadow-lg py-1 z-30 animate-fade-in text-xs font-normal">
               <button
+                type="button"
                 onClick={() => {
                   setMenuOpen(false);
                   setIsRenaming(true);
@@ -163,10 +161,11 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
                 className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2 text-foreground"
               >
                 <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>Rename</span>
+                <span>Ubah Judul</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   setMenuOpen(false);
                   pinConversation(conversation.id, !conversation.pinned);
@@ -174,10 +173,11 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
                 className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2 text-foreground"
               >
                 <Pin className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>{conversation.pinned ? 'Unpin' : 'Pin'}</span>
+                <span>{conversation.pinned ? 'Lepas Sematan' : 'Sematkan'}</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   setMenuOpen(false);
                   archiveConversation(conversation.id, !conversation.archived);
@@ -185,20 +185,22 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
                 className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2 text-foreground"
               >
                 <Archive className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>{conversation.archived ? 'Unarchive' : 'Archive'}</span>
+                <span>{conversation.archived ? 'Keluarkan Arsip' : 'Arsipkan'}</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => handleExport('markdown')}
                 className="w-full text-left px-3 py-1.5 hover:bg-muted flex items-center gap-2 text-foreground"
               >
-                <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>Export MD</span>
+                <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                <span>Unduh .md</span>
               </button>
 
               <div className="border-t border-border/50 my-1" />
 
               <button
+                type="button"
                 onClick={() => {
                   setMenuOpen(false);
                   deleteConversation(conversation.id);
@@ -206,7 +208,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({ conversation
                 className="w-full text-left px-3 py-1.5 hover:bg-destructive/10 text-destructive flex items-center gap-2"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
+                <span>Hapus</span>
               </button>
             </div>
           )}

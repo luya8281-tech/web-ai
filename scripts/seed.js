@@ -150,7 +150,20 @@ provStmt.run(
   now
 );
 
-// Provider 5: Development Provider (Mock)
+// Provider 5: OpenCode CLI (locally authenticated, free model catalog)
+provStmt.run(
+  'opencode',
+  'OpenCode (Free Models)',
+  'local://opencode-cli',
+  'opencode-cli',
+  0,
+  1,
+  1,
+  now,
+  now
+);
+
+// Provider 6: Development Provider (Mock)
 provStmt.run(
   'mock-dev',
   'Development Provider',
@@ -276,12 +289,16 @@ for (const m of vyceModels) {
 
 // Seed Antigravity Agent models
 const antigravityModels = [
+  { id: 'gemini-4-argon', display_name: 'Gemini 4 Argon', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'gemini-4-argon-low', display_name: 'Gemini 4 Argon (Low)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'gemini-4-argon-medium', display_name: 'Gemini 4 Argon (Medium)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'gemini-4-argon-high', display_name: 'Gemini 4 Argon (High)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
   { id: 'gemini-3.8-flash-high', display_name: 'Gemini 3.8 Flash (High Effort Agent)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
   { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6 (Agent Thinking)', context_length: 200000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
-  { id: 'gemini-3.1-pro-high', display_name: 'Gemini 3.1 Pro (High Reasoning)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
-  { id: 'claude-opus-4-6-thinking', display_name: 'Claude Opus 4.6 (Max Reasoning)', context_length: 200000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'claude-opus-5-5-high', display_name: 'Claude Opus 5.5 (Thinking)', context_length: 200000, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
   { id: 'gpt-oss-120b-medium', display_name: 'GPT-OSS 120B (Medium Effort)', context_length: 128000, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
 ];
+db.prepare("UPDATE models SET is_enabled = 0, is_default = 0 WHERE provider_id = 'antigravity'").run();
 for (const m of antigravityModels) {
   modelStmt.run(
     `antigravity:${m.id}`,
@@ -298,6 +315,23 @@ for (const m of antigravityModels) {
     now,
     now
   );
+}
+
+// OpenCode free models available from the local CLI.
+const opencodeModels = [
+  { id: 'opencode/nemotron-3.5-super-vl-free', display_name: 'Nemotron 3.5 Super VL (Free)', context_length: 1048576, capabilities: { text: true, vision: true, tools: true, reasoning: true } },
+  { id: 'opencode/nemotron-3.5-lightning-free', display_name: 'Nemotron 3.5 Lightning (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/nemotron-3-ultra-free', display_name: 'Nemotron 3 Ultra (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/glm-5.3-flash-free', display_name: 'GLM 5.3 Flash (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/deepseek-v4.1-flash-free', display_name: 'DeepSeek V4.1 Flash (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/mimo-v2.6-flash-free', display_name: 'MiMo V2.6 Flash (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/longcat-2.5-preview-free', display_name: 'LongCat 2.5 Preview (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/space-bunny-free', display_name: 'Space Bunny (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/beam-free', display_name: 'Beam (Free)', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+  { id: 'opencode/big-pickle', display_name: 'Big Pickle', context_length: 1048576, capabilities: { text: true, vision: false, tools: true, reasoning: true } },
+];
+for (const m of opencodeModels) {
+  modelStmt.run(`opencode:${m.id}`, 'opencode', m.id, m.id, m.display_name, 'Free model executed through the authenticated OpenCode CLI.', m.context_length, 65536, JSON.stringify(m.capabilities), null, m.id === 'opencode/nemotron-3.5-super-vl-free' ? 1 : 0, now, now);
 }
 
 // Seed Mock Dev models

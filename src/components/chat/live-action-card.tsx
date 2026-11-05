@@ -1,178 +1,264 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Loader2,
-  CheckCircle2,
   ChevronDown,
-  Globe,
-  Terminal,
-  Code2,
-  BookOpen,
-  Sparkles,
-  Wrench,
-  Search,
+  ChevronUp,
   Copy,
   Check,
+  XCircle,
 } from 'lucide-react';
 import { ActionInfo } from '@/types/chat';
+import { AbstractSpinner } from './abstract-spinner';
+import { extractSourcesFromAction } from '@/lib/utils/clean-content';
+import { useUIStore } from '@/stores/ui-store';
+import { copyToClipboard } from '@/lib/utils/clipboard';
+import { getActionBadge, formatDuration, tailOutput } from '@/lib/utils/action-display';
 
-function getActionIcon(type: string) {
-  const t = (type || '').toUpperCase();
-  if (t === 'CARI_WEB') return <Search className="w-3.5 h-3.5 text-primary" />;
-  if (t === 'BUKA_WEB' || t === 'SCREENSHOT_WEB') return <Globe className="w-3.5 h-3.5 text-primary" />;
-  if (t === 'RUN_BASH') return <Terminal className="w-3.5 h-3.5 text-primary" />;
-  if (t === 'RUN_PYTHON') return <Code2 className="w-3.5 h-3.5 text-amber-500/90" />;
-  if (t === 'BACA_SKILL' || t === 'INSTALL_SKILL') return <BookOpen className="w-3.5 h-3.5 text-primary" />;
-  return <Wrench className="w-3.5 h-3.5 text-primary" />;
+interface LiveActionCardProps {
+  action: ActionInfo;
 }
 
-export const LiveActionCard: React.FC<{ action: ActionInfo }> = ({ action }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const isRunning = action.status === 'running';
+export const StatusGlyph: React.FC<{ action: ActionInfo }> = ({ action }) => {
+  if (action.status === 'running') {
+    return <AbstractSpinner size={13} className="text-primary shrink-0" />;
+  }
+  if (action.isError) {
+    return <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />;
+  }
+  return <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />;
+};
 
-  const handleCopyDetails = async (e: React.MouseEvent) => {
+/**
+ * Kartu aksi ringkas: satu baris saat tertutup (status · jenis · perintah ·
+ * durasi), detail/log di dalam dropdown. Tidak ada ekor output otomatis agar
+ * percakapan tidak memanjang.
+ */
+export const LiveActionCard: React.FC<LiveActionCardProps> = ({ action }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const { setWorkspaceOpen, openSourcesDialog } = useUIStore();
+
+  const isRunning = action.status === 'running';
+  const fullText = action.output || action.details || '';
+  const subject = action.subject || '';
+  const startedAt = action.startedAt;
+
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!isRunning || !startedAt) return;
+    setElapsed(Date.now() - startedAt);
+    const id = setInterval(() => setElapsed(Date.now() - startedAt), 250);
+    return () => clearInterval(id);
+  }, [isRunning, startedAt]);
+
+  const duration = formatDuration(isRunning && startedAt ? elapsed : action.durationMs);
+  const sources = useMemo(() => extractSourcesFromAction(action), [action]);
+  const uniqueDomains = useMemo(() => {
+    const seen = new Set<string>();
+    return sources.filter((s) => {
+      if (seen.has(s.domain)) return false;
+      seen.add(s.domain);
+      return true;
+    });
+  }, [sources]);
+
+  const tail = useMemo(() => (isOpen ? tailOutput(fullText, 8, 900) : ''), [isOpen, fullText]);
+
+  const handleOpenWorkspace = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!action.details) return;
-    try {
-      await navigator.clipboard.writeText(action.details);
+    if (action.type === 'RUN_BASH' || action.type === 'RUN_PYTHON') {
+      setWorkspaceOpen(true, 'terminal', action);
+    } else if (
+      action.type === 'BUKA_WEB' ||
+      action.type === 'SCREENSHOT_WEB' ||
+      action.type === 'BROWSER'
+    ) {
+      setWorkspaceOpen(true, 'browser', action);
+    } else if (sources.length > 0) {
+      openSourcesDialog(sources, action.subject || action.label);
+    } else {
+      setWorkspaceOpen(true, 'terminal', action);
+    }
+  };
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ok = await copyToClipboard(fullText);
+    if (ok) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {}
+      setTimeout(() => setCopied(false), 1800);
+    }
   };
 
   return (
-    <div
-      className={`my-2 rounded-xl border transition-all duration-200 overflow-hidden relative ${
-        isRunning
-          ? 'border-primary/40 bg-card/90 shadow-sm border-l-[3px] border-l-primary'
-          : 'border-border/70 bg-card/50 hover:border-border hover:bg-card/80'
-      }`}
-    >
-      {/* High-Tech Animated Corner Accents on ALL 4 CORNERS */}
-      <div className="absolute top-0 left-0 w-3.5 h-3.5 pointer-events-none z-10">
-        <div
-          className={`w-full h-full border-t-2 border-l-2 rounded-tl-md transition-all duration-300 ${
-            isRunning
-              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
-              : 'border-emerald-500/50'
-          }`}
-        />
-        {isRunning && (
-          <span className="absolute top-0 left-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
-        )}
-      </div>
-
-      <div className="absolute top-0 right-0 w-3.5 h-3.5 pointer-events-none z-10">
-        <div
-          className={`w-full h-full border-t-2 border-r-2 rounded-tr-md transition-all duration-300 ${
-            isRunning
-              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
-              : 'border-emerald-500/50'
-          }`}
-        />
-        {isRunning && (
-          <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
-        )}
-      </div>
-
-      <div className="absolute bottom-0 left-0 w-3.5 h-3.5 pointer-events-none z-10">
-        <div
-          className={`w-full h-full border-b-2 border-l-2 rounded-bl-md transition-all duration-300 ${
-            isRunning
-              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
-              : 'border-emerald-500/50'
-          }`}
-        />
-        {isRunning && (
-          <span className="absolute bottom-0 left-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
-        )}
-      </div>
-
-      <div className="absolute bottom-0 right-0 w-3.5 h-3.5 pointer-events-none z-10">
-        <div
-          className={`w-full h-full border-b-2 border-r-2 rounded-br-md transition-all duration-300 ${
-            isRunning
-              ? 'border-primary shadow-[0_0_8px_rgba(59,130,246,0.8)] animate-pulse'
-              : 'border-emerald-500/50'
-          }`}
-        />
-        {isRunning && (
-          <span className="absolute bottom-0 right-0 w-1.5 h-1.5 bg-primary rounded-full animate-ping opacity-80" />
-        )}
-      </div>
-
-      {/* Action Header Button / Dropdown Trigger */}
+    <div className="my-0.5 w-full max-w-2xl font-sans">
       <button
         type="button"
-        onClick={() => action.details && setIsOpen(!isOpen)}
-        className={`w-full flex items-center justify-between px-3 sm:px-3.5 py-2.5 text-xs transition-colors select-none ${
-          action.details ? 'cursor-pointer' : 'cursor-default'
-        } hover:bg-muted/40`}
+        onClick={() => setIsOpen((v) => !v)}
+        aria-expanded={isOpen}
+        className="group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted/40"
       >
-        <div className="flex items-center gap-2.5 font-medium min-w-0 pr-2">
-          {isRunning ? (
-            <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
-          ) : (
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-          )}
+        <StatusGlyph action={action} />
 
-          <div className="flex items-center gap-1.5 truncate text-foreground/90">
-            {getActionIcon(action.type)}
-            <span className="truncate">{action.label}</span>
-          </div>
+        <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-wider text-muted-foreground/80">
+          {getActionBadge(action.type)}
+        </span>
 
-          {isRunning ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium shrink-0 border border-primary/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-              <span>Memproses</span>
-            </span>
-          ) : (
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 text-[10px] font-medium shrink-0 border border-emerald-500/20">
-              Selesai
-            </span>
-          )}
-        </div>
+        <span
+          className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
+            isRunning
+              ? 'text-shimmer'
+              : action.isError
+                ? 'text-red-500/90'
+                : 'text-foreground/85'
+          }`}
+          title={subject || action.label}
+        >
+          {subject || action.label}
+        </span>
 
-        {action.details && (
-          <div className="flex items-center gap-1.5 text-[11px] shrink-0 font-medium text-muted-foreground hover:text-foreground transition-colors">
-            <span>{isOpen ? 'Tutup' : 'Lihat Detail'}</span>
-            <ChevronDown
-              className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                isOpen ? 'rotate-180' : ''
-              }`}
-            />
-          </div>
+        {action.review && action.review.verdict !== 'allow' && (
+          <span
+            title={action.review.reason}
+            className={`shrink-0 rounded border px-1 text-[9px] uppercase tracking-wide ${
+              action.review.verdict === 'block'
+                ? 'border-red-500/40 text-red-500'
+                : 'border-amber-500/40 text-amber-500'
+            }`}
+          >
+            {action.review.verdict}
+          </span>
+        )}
+
+        {duration && (
+          <span className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0">
+            {duration}
+          </span>
+        )}
+        {sources.length > 0 && (
+          <span className="text-[10px] text-muted-foreground shrink-0">{sources.length} sumber</span>
+        )}
+
+        {isOpen ? (
+          <ChevronUp className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         )}
       </button>
 
-      {/* Dropdown Content with smooth animated appearance */}
-      {isOpen && action.details && (
-        <div className="border-t border-border/50 bg-muted/20 animate-fade-in">
-          <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/40 text-[10px] font-mono text-muted-foreground">
-            <span className="uppercase tracking-wider">Output / Log Eksekusi</span>
+      {isOpen && (
+        <div className="space-y-2 pb-2 pl-7 pr-1.5 pt-1">
+          {action.label && subject && (
+            <div className="text-[11px] text-muted-foreground">{action.label}</div>
+          )}
+
+          {tail && (
+            <pre className="font-mono text-[10.5px] leading-snug text-muted-foreground whitespace-pre-wrap break-words max-h-56 overflow-y-auto rounded-md bg-background/70 border border-border/60 px-2 py-1.5">
+              {tail}
+            </pre>
+          )}
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {sources.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openSourcesDialog(sources, action.subject || action.label);
+                }}
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-border bg-background hover:border-primary/50 text-[10px] font-medium text-foreground transition-colors"
+              >
+                <span className="flex items-center -space-x-1">
+                  {uniqueDomains.slice(0, 4).map((s) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={s.domain}
+                      src={
+                        s.favicon ||
+                        `https://www.google.com/s2/favicons?domain=${encodeURIComponent(s.domain)}&sz=64`
+                      }
+                      alt={s.domain}
+                      className="w-3 h-3 rounded-full border border-card bg-muted object-contain"
+                    />
+                  ))}
+                </span>
+                <span>Lihat sumber</span>
+              </button>
+            )}
+
             <button
-              onClick={handleCopyDetails}
-              className="flex items-center gap-1 hover:text-foreground transition-colors p-1 rounded hover:bg-muted"
-              title="Salin Output"
+              type="button"
+              onClick={handleOpenWorkspace}
+              className="px-2 py-0.5 rounded border border-border bg-secondary/70 hover:bg-muted text-[10px] font-medium text-foreground transition-colors"
             >
-              {copied ? (
-                <>
-                  <Check className="w-3 h-3 text-emerald-500" />
-                  <span className="text-emerald-500">Tersalin</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3 h-3" />
-                  <span>Salin</span>
-                </>
-              )}
+              {action.type === 'RUN_BASH' || action.type === 'RUN_PYTHON'
+                ? 'Buka CLI'
+                : action.type === 'BUKA_WEB' ||
+                    action.type === 'SCREENSHOT_WEB' ||
+                    action.type === 'BROWSER'
+                  ? 'Web Aktif'
+                  : sources.length > 0
+                    ? 'Sumber'
+                    : 'Inspeksi'}
             </button>
+
+            {fullText && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLogOpen((v) => !v);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border bg-secondary/70 hover:bg-muted text-[10px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                {logOpen ? 'Tutup log' : 'Log penuh'}
+                <span className="text-[9px] opacity-70">
+                  {fullText.length.toLocaleString()}
+                </span>
+              </button>
+            )}
           </div>
-          <div className="p-3 font-mono text-[11px] text-foreground/80 leading-relaxed max-h-48 overflow-y-auto select-text break-words whitespace-pre-wrap">
-            {action.details}
-          </div>
+
+          {action.screenshotUrl && (
+            <button
+              type="button"
+              onClick={handleOpenWorkspace}
+              className="w-full rounded-md overflow-hidden border border-border bg-black/20 block"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={action.screenshotUrl}
+                alt={action.label || 'Live Web Screenshot'}
+                className="w-full h-auto max-h-44 object-contain"
+              />
+            </button>
+          )}
+
+          {logOpen && fullText && (
+            <div className="rounded-md border border-border bg-background/90 overflow-hidden">
+              <div className="flex items-center justify-between px-2 py-1 bg-secondary/40 border-b border-border/60 text-[10px] font-mono text-muted-foreground">
+                <span>{fullText.split('\n').length} baris</span>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="inline-flex items-center gap-1 hover:text-foreground"
+                >
+                  {copied ? (
+                    <Check className="w-3 h-3 text-primary" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                  <span>{copied ? 'Tersalin' : 'Salin'}</span>
+                </button>
+              </div>
+              <pre className="px-2 py-1.5 text-[10.5px] font-mono text-muted-foreground whitespace-pre-wrap break-words max-h-72 overflow-y-auto leading-relaxed">
+                {fullText}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

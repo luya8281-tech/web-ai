@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, Lora } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { ToastContainer } from '@/components/ui/toast-container';
 import { ModelSelectorDialog } from '@/components/model-selector/model-selector-dialog';
@@ -7,10 +7,33 @@ import { SettingsDialog } from '@/components/settings/settings-dialog';
 import { SkillsDialog } from '@/components/skills/skills-dialog';
 import { ConnectorsDialog } from '@/components/connectors/connectors-dialog';
 import { VaultDialog } from '@/components/vault/vault-dialog';
+import { SourcesDialog } from '@/components/chat/sources-dialog';
 import { CommandPalette } from '@/components/command-palette/command-palette';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
-const lora = Lora({ subsets: ['latin'], variable: '--font-serif' });
+// Font di-vendor lokal (src/app/fonts) supaya build tidak pernah bergantung
+// pada koneksi ke fonts.googleapis.com yang kadang timeout di server ini.
+// Subset latin + latin-ext; browser otomatis fallback per-glif antar file.
+const inter = localFont({
+  src: [
+    { path: './fonts/Inter-latin.woff2', weight: '100 900', style: 'normal' },
+    { path: './fonts/Inter-latin-ext.woff2', weight: '100 900', style: 'normal' },
+  ],
+  variable: '--font-sans',
+  display: 'swap',
+  fallback: ['Arial', 'system-ui', 'sans-serif'],
+  adjustFontFallback: 'Arial',
+});
+
+const lora = localFont({
+  src: [
+    { path: './fonts/Lora-latin.woff2', weight: '400 700', style: 'normal' },
+    { path: './fonts/Lora-latin-ext.woff2', weight: '400 700', style: 'normal' },
+  ],
+  variable: '--font-serif',
+  display: 'swap',
+  fallback: ['Georgia', 'serif'],
+  adjustFontFallback: 'Times New Roman',
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://vee2.my.id'),
@@ -91,6 +114,7 @@ export default function RootLayout({
         <SkillsDialog />
         <ConnectorsDialog />
         <VaultDialog />
+        <SourcesDialog />
         <CommandPalette />
         <ToastContainer />
       </body>

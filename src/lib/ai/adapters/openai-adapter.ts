@@ -20,7 +20,9 @@ export class OpenAICompatibleAdapter implements AIProvider {
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      // Muse and other compatible providers return text/event-stream when
+      // `stream: true`; declaring both keeps normal JSON endpoints working.
+      'Accept': 'application/json, text/event-stream',
     };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
@@ -150,6 +152,17 @@ export class OpenAICompatibleAdapter implements AIProvider {
           ),
         };
 
+        const lowerId = modelId.toLowerCase();
+        let fallbackContext = 128000;
+        if (lowerId.includes('muse') || lowerId.includes('qwen') || lowerId.includes('deepseek') || lowerId.includes('gemini') || lowerId.includes('claude') || lowerId.includes('gpt-5') || lowerId.includes('gpt-6') || lowerId.includes('kimi') || lowerId.includes('glm-5') || lowerId.includes('mimo')) {
+          fallbackContext = 1000000;
+        }
+
+        let ctx = m.context_length || m.context_window || fallbackContext;
+        if (lowerId.includes('tokenharbor') || lowerId.startsWith('tokenharbor/')) {
+          ctx = 1000000;
+        }
+
         return {
           id: `${this.id}:${modelId}`,
           providerId: this.id,
@@ -157,8 +170,8 @@ export class OpenAICompatibleAdapter implements AIProvider {
           name: m.name || modelId,
           displayName,
           description: m.description || `Hosted by ${this.name}`,
-          contextWindow: m.context_length || m.context_window || 128000,
-          maxOutputTokens: m.max_output_tokens || 4096,
+          contextWindow: ctx,
+          maxOutputTokens: m.max_output_tokens || 8192,
           capabilities: caps,
           pricing: m.pricing,
           isEnabled: true,
@@ -222,6 +235,10 @@ export class OpenAICompatibleAdapter implements AIProvider {
     if (request.reasoningEffort && request.reasoningEffort !== 'off') {
       payload.reasoning_effort = request.reasoningEffort;
     }
+    if (request.tools && request.tools.length > 0) {
+      payload.tools = request.tools;
+      payload.tool_choice = 'auto';
+    }
 
     return payload;
   }
@@ -257,6 +274,13 @@ export class OpenAICompatibleAdapter implements AIProvider {
       content: message.content || '',
       reasoningContent: message.reasoning_content || null,
       model: data.model || request.model,
+      toolCalls: Array.isArray(message.tool_calls)
+        ? message.tool_calls.map((tc: any) => ({
+            id: tc?.id,
+            name: tc?.function?.name || '',
+            arguments: tc?.function?.arguments || '',
+          }))
+        : undefined,
       usage: data.usage ? {
         promptTokens: data.usage.prompt_tokens || 0,
         completionTokens: data.usage.completion_tokens || 0,
@@ -268,41 +292,95 @@ export class OpenAICompatibleAdapter implements AIProvider {
 
   async *streamChat(request: ChatRequest): AsyncIterable<ChatStreamChunk> {
     const payload = this.buildPayload(request, true);
-    let res: Response;
+    // Beberapa upstream (terutama rute harness OpenCode "oc/*" di 9router)
+    // sesekali mengembalikan 429 "Endpoint is unavailable" atau stream kosong
+    // karena salah satu endpoint upstream-nya sedang mati. Coba ulang
+    // beberapa kali sebelum menyerah.
+    const MAX_ATTEMPTS = 3;
+    let lastError = '';
 
-    try {
-      res = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(payload),
-        signal: request.abortSignal,
-      });
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        yield { type: 'done' };
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      let res: Response;
+
+      try {
+        res = await fetch(`${this.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(payload),
+          signal: request.abortSignal,
+        });
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          yield { type: 'done' };
+          return;
+        }
+        lastError = `Koneksi ke provider ${this.name} terputus: ${err.message}.`;
+        if (attempt < MAX_ATTEMPTS) {
+          console.warn(`[${this.name}] Jaringan gagal (${err.message}), percobaan ${attempt}/${MAX_ATTEMPTS}. Retry...`);
+          await new Promise((r) => setTimeout(r, 700 * attempt));
+          continue;
+        }
+        yield { type: 'error', error: `${lastError} Silakan coba lagi atau pilih model lain.` };
         return;
       }
-      yield { type: 'error', error: `Koneksi ke provider ${this.name} terputus: ${err.message}. Silakan coba pilih model lain.` };
+
+      if (!res.ok) {
+        const errText = await res.text();
+        let parsed = errText;
+        try {
+          const json = JSON.parse(errText);
+          parsed = json.error?.message || json.message || errText;
+        } catch (e) {}
+
+        lastError = `Provider error (${res.status}): ${parsed}`;
+        const transient = res.status === 429 || res.status === 408 || res.status >= 500;
+        if (transient && attempt < MAX_ATTEMPTS) {
+          // 429 biasanya = rate limit bucket yang sangat pendek (free tier
+          // 5-20 request/menit), jadi backoff harus jauh lebih lama daripada
+          // error jaringan biasa.
+          const waitMs = res.status === 429 ? 2500 * attempt : 800 * attempt;
+          console.warn(`[${this.name}] ${res.status} transient, percobaan ${attempt}/${MAX_ATTEMPTS}. Retry dalam ${waitMs}ms...`);
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        if (res.status === 429) {
+          lastError +=
+            ' — Provider sedang membatasi laju permintaan (rate limit). Tunggu 30-60 detik sebelum mengulangi, atau pilih model lain.';
+        }
+        yield { type: 'error', error: lastError };
+        return;
+      }
+
+      if (!res.body) {
+        yield { type: 'error', error: 'No response body stream received from provider.' };
+        return;
+      }
+
+      let produced = 0;
+      for await (const chunk of parseOpenAISSEStream(res.body, request.abortSignal)) {
+        if (chunk.type === 'token' && chunk.content) produced += chunk.content.length;
+        // Model native-tool mengirim content kosong + tool_calls. Tanpa ini,
+        // balasan tersebut salah dihitung sebagai upstream dropout lalu di-retry.
+        if (chunk.type === 'tool_calls' && chunk.toolCalls?.length) produced += 1;
+        yield chunk;
+      }
+
+      // Stream habis tanpa satu pun token -> upstream dropout. Coba lagi.
+      if (produced === 0 && attempt < MAX_ATTEMPTS) {
+        console.warn(`[${this.name}] Stream kosong (percobaan ${attempt}/${MAX_ATTEMPTS}), retry...`);
+        await new Promise((r) => setTimeout(r, 800 * attempt));
+        continue;
+      }
+      if (produced === 0) {
+        yield {
+          type: 'error',
+          error: `Provider ${this.name} tidak mengembalikan jawaban setelah ${MAX_ATTEMPTS} percobaan. Rute ini sedang tidak stabil — coba lagi atau pilih model lain.`,
+        };
+        return;
+      }
       return;
     }
 
-    if (!res.ok) {
-      const errText = await res.text();
-      let parsed = errText;
-      try {
-        const json = JSON.parse(errText);
-        parsed = json.error?.message || json.message || errText;
-      } catch (e) {}
-
-      yield { type: 'error', error: `Provider error (${res.status}): ${parsed}` };
-      return;
-    }
-
-    if (!res.body) {
-      yield { type: 'error', error: 'No response body stream received from provider.' };
-      return;
-    }
-
-    yield* parseOpenAISSEStream(res.body, request.abortSignal);
+    yield { type: 'error', error: lastError || 'Provider tidak mengembalikan jawaban.' };
   }
 }

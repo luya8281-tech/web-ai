@@ -13,6 +13,10 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Dipakai scripts/deploy.sh untuk build ke folder sementara (.next.new)
+  // sementara server produksi tetap menyajikan .next yang lama. Saat runtime
+  // variabel ini tidak di-set, jadi tetap memakai .next.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
 };
 
 export default withPWA(nextConfig);

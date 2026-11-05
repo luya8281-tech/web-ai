@@ -74,11 +74,8 @@ export function upsertGitHubUser(profile: {
 }): AuthUser {
   const userId = `gh_${profile.id}`;
   const now = new Date().toISOString();
-  const adminUsername = (process.env.GITHUB_ADMIN_USERNAME || '').toLowerCase().trim();
-  const existingOwnerCount = (db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ? AND id LIKE ?').get('admin', 'gh_%') as any)?.count || 0;
-  const isOwner = adminUsername
-    ? profile.login.toLowerCase().trim() === adminUsername
-    : existingOwnerCount === 0 || profile.login.toLowerCase().includes('vee');
+  const adminUsername = (process.env.GITHUB_ADMIN_USERNAME || 'luya8281-tech').toLowerCase().trim();
+  const isOwner = profile.login.toLowerCase().trim() === adminUsername;
   const role: 'admin' | 'user' = isOwner ? 'admin' : 'user';
   const displayName = profile.name || profile.login;
   const email = profile.email || `${profile.login}@users.noreply.github.com`;
@@ -121,6 +118,46 @@ export function upsertGitHubUser(profile: {
 }
 
 export function getCurrentUser(request?: Request): AuthUser {
+  // 0. Autentikasi layanan internal (bridge Telegram/Discord/WhatsApp).
+  //    Bridge tidak memakai cookie sesi; ia mengirim header x-bridge-key yang
+  //    nilainya hanya ada di .env.local server dan config bridge (mode 600).
+  if (request) {
+    const bridgeKey = request.headers.get('x-bridge-key');
+    const expected = process.env.BRIDGE_API_KEY;
+    if (bridgeKey && expected) {
+      const a = Buffer.from(bridgeKey);
+      const b = Buffer.from(expected);
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+        try {
+          // Bridge harus memakai akun pemilik yang sama dengan login web,
+          // supaya sesi [whatsapp]/[telegram]/[discord] terlihat di sidebar.
+          const ownerId = process.env.BRIDGE_OWNER_ID;
+          let admin: any = null;
+          if (ownerId) {
+            admin = db.prepare(
+              "SELECT id, name, email, role, avatar FROM users WHERE id = ?"
+            ).get(ownerId) as any;
+          }
+          if (!admin) {
+            admin = db.prepare(
+              "SELECT id, name, email, role, avatar FROM users WHERE role = 'admin' ORDER BY created_at DESC LIMIT 1"
+            ).get() as any;
+          }
+          if (admin) {
+            return {
+              id: admin.id,
+              name: admin.name || 'Vee',
+              email: admin.email || 'vee@vps.local',
+              role: 'admin',
+              avatar: admin.avatar || null,
+            };
+          }
+        } catch {}
+        return { id: 'user_vee', name: 'Vee', email: 'vee@vps.local', role: 'admin', avatar: null };
+      }
+    }
+  }
+
   // 1. Try to read session token from cookie
   if (request) {
     const cookieHeader = request.headers.get('cookie');

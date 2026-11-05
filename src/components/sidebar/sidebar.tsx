@@ -154,13 +154,11 @@ export const Sidebar: React.FC = () => {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:hidden'
         }`}
       >
-        {/* Top Brand Header (V² Monogram, ZERO Mascot) */}
+        {/* Vee brand */}
         <div className="p-3 space-y-2 border-b border-sidebar-border">
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 text-primary flex items-center justify-center font-serif font-bold text-xs">
-                V²
-              </div>
+              <img src="/vee-sela-hitam.png" alt="Logo Vee" width={28} height={28} className="w-7 h-7 rounded-md bg-white shrink-0" />
               <span className="font-semibold text-sm tracking-tight text-sidebar-foreground">
                 Vee Workspace
               </span>

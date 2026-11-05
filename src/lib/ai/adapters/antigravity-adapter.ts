@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { buildHistoryText } from './history-util';
 import { AIProvider, ChatRequest, ChatResponse } from '../provider-interface';
 import { Model, ChatStreamChunk } from '@/types/chat';
 
@@ -9,6 +10,16 @@ export class AntigravityAgentAdapter implements AIProvider {
   protocol = 'antigravity-agent';
   private agyPath = '/root/.local/bin/agy';
   private workspaceDir = '/root';
+  private customHomeDir?: string;
+
+  constructor(config?: { id?: string, name?: string, apiKey?: string }) {
+    if (config?.id) this.id = config.id;
+    if (config?.name) this.name = config.name;
+    if (config?.apiKey && config.apiKey.trim() !== '') {
+      // If user inputs a path like /root/email2, use it as HOME
+      this.customHomeDir = config.apiKey.trim();
+    }
+  }
 
   supportsStreaming(): boolean { return true; }
   supportsVision(): boolean { return true; }
@@ -17,9 +28,15 @@ export class AntigravityAgentAdapter implements AIProvider {
 
   async testConnection(): Promise<{ ok: boolean; message: string; modelCount?: number }> {
     return new Promise((resolve) => {
+      const env: any = { ...process.env };
+      if (this.customHomeDir) {
+        env.HOME = this.customHomeDir;
+      }
+      
       const proc = spawn(this.agyPath, ['models'], {
         cwd: this.workspaceDir,
         timeout: 10000,
+        env
       });
 
       let stdout = '';
@@ -30,7 +47,7 @@ export class AntigravityAgentAdapter implements AIProvider {
           resolve({
             ok: true,
             message: '✓ Antigravity CLI and Agentic Ecosystem are active and ready.',
-            modelCount: 14,
+            modelCount: 6,
           });
         } else {
           resolve({
@@ -88,121 +105,13 @@ export class AntigravityAgentAdapter implements AIProvider {
         isEnabled: true,
       },
       {
-        id: 'antigravity:gemini-3.7-flash-high',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.7-flash-high',
-        name: 'gemini-3.7-flash-high',
-        displayName: 'Gemini 3.7 Flash (High)',
-        description: 'High-reasoning flash agent model.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:gemini-3.7-flash-medium',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.7-flash-medium',
-        name: 'gemini-3.7-flash-medium',
-        displayName: 'Gemini 3.7 Flash (Medium)',
-        description: 'Balanced flash reasoning model.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:gemini-3.7-flash-low',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.7-flash-low',
-        name: 'gemini-3.7-flash-low',
-        displayName: 'Gemini 3.7 Flash (Low)',
-        description: 'Speed-optimized flash reasoning model.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:gemini-3.6-flash-high',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.6-flash-high',
-        name: 'gemini-3.6-flash-high',
-        displayName: 'Gemini 3.6 Flash (High)',
-        description: 'Proven high-throughput flash agent model.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:gemini-3.6-flash-medium',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.6-flash-medium',
-        name: 'gemini-3.6-flash-medium',
-        displayName: 'Gemini 3.6 Flash (Medium)',
-        description: 'Standard flash model.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:gemini-3.6-flash-low',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.6-flash-low',
-        name: 'gemini-3.6-flash-low',
-        displayName: 'Gemini 3.6 Flash (Low)',
-        description: 'Fast response flash model.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:gemini-3.1-pro-high',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.1-pro-high',
-        name: 'gemini-3.1-pro-high',
-        displayName: 'Gemini 3.1 Pro (High Reasoning)',
-        description: 'Deep problem-solving and architectural synthesis agent.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:gemini-3.1-pro-low',
-        providerId: 'antigravity',
-        modelId: 'gemini-3.1-pro-low',
-        name: 'gemini-3.1-pro-low',
-        displayName: 'Gemini 3.1 Pro (Low)',
-        description: 'Fast Pro-tier model for direct coding assistance.',
-        contextWindow: 1048576,
-        maxOutputTokens: 65536,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
         id: 'antigravity:claude-sonnet-4-6',
         providerId: 'antigravity',
         modelId: 'claude-sonnet-4-6',
         name: 'claude-sonnet-4-6',
         displayName: 'Claude Sonnet 4.6 (Agent Thinking)',
         description: 'Hybrid reasoning and high-precision coding agent within Antigravity.',
-        contextWindow: 200000,
-        maxOutputTokens: 64000,
-        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
-        isEnabled: true,
-      },
-      {
-        id: 'antigravity:claude-opus-4-6-thinking',
-        providerId: 'antigravity',
-        modelId: 'claude-opus-4-6-thinking',
-        name: 'claude-opus-4-6-thinking',
-        displayName: 'Claude Opus 4.6 (Max Reasoning)',
-        description: 'Maximum intelligence tier for extremely complex multifaceted projects.',
-        contextWindow: 200000,
+        contextWindow: 2000000,
         maxOutputTokens: 64000,
         capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
         isEnabled: true,
@@ -217,6 +126,18 @@ export class AntigravityAgentAdapter implements AIProvider {
         contextWindow: 128000,
         maxOutputTokens: 40960,
         capabilities: { text: true, vision: false, tools: true, images: false, reasoning: true },
+        isEnabled: true,
+      },
+      {
+        id: 'antigravity:claude-opus-4-6-thinking',
+        providerId: 'antigravity',
+        modelId: 'claude-opus-4-6-thinking',
+        name: 'claude-opus-4-6-thinking',
+        displayName: 'Claude Opus 4.6 (Thinking)',
+        description: 'Claude Opus 4.6 available on Antigravity Pro plans.',
+        contextWindow: 2000000,
+        maxOutputTokens: 64000,
+        capabilities: { text: true, vision: true, tools: true, images: true, reasoning: true },
         isEnabled: true,
       },
     ];
@@ -253,7 +174,7 @@ export class AntigravityAgentAdapter implements AIProvider {
 
     // Include recent conversational history context if multi-turn
     if (request.messages.length > 1) {
-      const priorTurns = request.messages.slice(-5, -1).map(m => `[${m.role.toUpperCase()}]: ${m.content}`).join('\n\n');
+      const priorTurns = buildHistoryText(request.messages.slice(0, -1), { budgetChars: 60000 });
       promptText = `Prior conversation context:\n${priorTurns}\n\nCurrent user message:\n${promptText}`;
     }
 
@@ -265,14 +186,28 @@ export class AntigravityAgentAdapter implements AIProvider {
       '--dangerously-skip-permissions', // Auto-approve agent tools without terminal hanging
     ];
 
-    if (request.model) {
-      args.push('--model', request.model);
+    let modelName = request.model;
+    
+    if (request.reasoningEffort && request.reasoningEffort !== 'off' && request.reasoningEffort !== 'default') {
+      if (modelName) {
+        modelName = modelName.replace(/-(high|medium|low)$/i, '');
+      }
+      args.push('--effort', request.reasoningEffort);
+    }
+
+    if (modelName) {
+      args.push('--model', modelName);
+    }
+
+    const env: any = { ...process.env, PAGER: 'cat' };
+    if (this.customHomeDir) {
+      env.HOME = this.customHomeDir;
     }
 
     // Spawn agy process
     const proc = spawn(this.agyPath, args, {
       cwd: this.workspaceDir,
-      env: { ...process.env, PAGER: 'cat' },
+      env
     });
 
     // Mitigation: Handle abort signal (kill child process cleanly when Stop is pressed)
@@ -293,7 +228,33 @@ export class AntigravityAgentAdapter implements AIProvider {
     const queue: ChatStreamChunk[] = [];
     let resolveNext: (() => void) | null = null;
     let isProcessDone = false;
-    let hasYieldedTokens = false;
+    let emittedAssistantText = '';
+
+    // stream-json may represent assistant text as deltas or a cumulative
+    // snapshot. Keep the UI truly live while preventing final-result repeats.
+    const emitAssistantText = (value: unknown, isSnapshot = false) => {
+      const text = typeof value === 'string'
+        ? value
+        : Array.isArray(value)
+          ? value.map((part) => typeof part === 'string' ? part : part?.text || part?.content || '').join('')
+          : value && typeof value === 'object'
+            ? (value as any).text || (value as any).content || ''
+            : '';
+      if (!text) return;
+
+      let nextText = text;
+      if (isSnapshot) {
+        if (text.startsWith(emittedAssistantText)) nextText = text.slice(emittedAssistantText.length);
+        else if (emittedAssistantText.startsWith(text)) return;
+        emittedAssistantText = text;
+      } else {
+        emittedAssistantText += text;
+      }
+      if (!nextText) return;
+
+      queue.push({ type: 'token', content: nextText });
+      if (resolveNext) resolveNext();
+    };
 
     let buffer = '';
 
@@ -359,28 +320,27 @@ export class AntigravityAgentAdapter implements AIProvider {
                 });
                 if (resolveNext) resolveNext();
               } else if (step.text_delta) {
-                // Actual assistant response text
-                hasYieldedTokens = true;
-                queue.push({
-                  type: 'token',
-                  content: step.text_delta,
-                });
-                if (resolveNext) resolveNext();
+                emitAssistantText(step.text_delta);
               }
             }
+          }
+
+          // Newer stream-json versions emit direct deltas rather than wrapping
+          // them in step_update. Accept those real-time events as well.
+          else if (['message_delta', 'content_delta', 'text_delta'].includes(event.event)) {
+            const delta = event.delta || event.message_delta || event.content_delta || event;
+            const thinking = delta.thinking_delta || delta.reasoning_delta || delta.thinking;
+            if (thinking) {
+              queue.push({ type: 'reasoning', reasoning: thinking });
+              if (resolveNext) resolveNext();
+            }
+            emitAssistantText(delta.text_delta || delta.text || delta.content);
           }
 
           // 3. Final Result event
           else if (event.event === 'result') {
             const result = event.result;
-            if (result?.response && !hasYieldedTokens) {
-              hasYieldedTokens = true;
-              queue.push({
-                type: 'token',
-                content: result.response,
-              });
-              if (resolveNext) resolveNext();
-            }
+            if (result?.response) emitAssistantText(result.response, true);
 
             if (result?.usage) {
               queue.push({

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { UserSettings } from '@/types/chat';
+import { AppTheme, UserSettings } from '@/types/chat';
 
 interface SettingsState {
   settings: UserSettings;
@@ -8,11 +8,43 @@ interface SettingsState {
   updateSettings: (data: Partial<UserSettings>) => Promise<void>;
 }
 
+const DARK_THEMES: AppTheme[] = ['dark', 'midnight', 'nord', 'mocha', 'rose'];
+
+export function applySettingsToDOM(settings: Partial<UserSettings>) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+
+  if (settings.theme) {
+    let resolvedTheme: AppTheme = settings.theme;
+    if (resolvedTheme === 'system' && typeof window !== 'undefined') {
+      resolvedTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    root.setAttribute('data-theme', resolvedTheme);
+    if (DARK_THEMES.includes(resolvedTheme)) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }
+
+  if (settings.fontSize) {
+    root.setAttribute('data-font-size', settings.fontSize);
+  }
+
+  if (settings.fontFamily) {
+    root.setAttribute('data-font-family', settings.fontFamily);
+    try {
+      localStorage.setItem('vee_font_family', settings.fontFamily);
+    } catch {}
+  }
+}
+
 const defaultSettings: UserSettings = {
   id: 'default',
   userId: 'user_vee',
   theme: 'dark',
   fontSize: 'normal',
+  fontFamily: 'serif',
   compactMode: false,
   sendOnEnter: false,
   autoTitle: true,
@@ -22,6 +54,8 @@ const defaultSettings: UserSettings = {
   systemPrompt: '',
   defaultProviderId: 'xkiro',
   defaultModelId: 'qwen/qwen3.7-plus:free',
+  memoryEnabled: true,
+  claudePersona: 'claude-official',
   updatedAt: new Date().toISOString(),
 };
 
@@ -36,16 +70,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         if (data.settings) {
-          set({ settings: data.settings });
-          // Apply theme to DOM
-          if (typeof document !== 'undefined') {
-            const root = document.documentElement;
-            if (data.settings.theme === 'light') {
-              root.classList.remove('dark');
-            } else {
-              root.classList.add('dark');
-            }
+          let savedFont: 'serif' | 'sans' | 'mono' = 'serif';
+          if (typeof window !== 'undefined') {
+            savedFont = (localStorage.getItem('vee_font_family') as any) || 'serif';
           }
+          const merged = { ...data.settings, fontFamily: data.settings.fontFamily || savedFont };
+          set({ settings: merged });
+          applySettingsToDOM(merged);
         }
       }
     } catch (err) {
@@ -59,16 +90,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const current = get().settings;
     const next = { ...current, ...data };
     set({ settings: next });
-
-    // Apply theme immediately
-    if (data.theme && typeof document !== 'undefined') {
-      const root = document.documentElement;
-      if (data.theme === 'light') {
-        root.classList.remove('dark');
-      } else {
-        root.classList.add('dark');
-      }
-    }
+    applySettingsToDOM(next);
 
     try {
       await fetch('/api/settings', {

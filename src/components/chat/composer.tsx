@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import {
-  Paperclip,
   ArrowUp,
   Square,
   SlidersHorizontal,
@@ -10,174 +9,386 @@ import {
   FileText,
   Image as ImageIcon,
   Camera,
-  AlertTriangle,
-  Brain,
-  Sparkles,
-  Globe,
-  Wrench,
   Plus,
   Mic,
-  AudioWaveform,
+  MicOff,
+  MapPin,
+  MapPinOff,
+  Loader2,
+  Terminal,
+  BookOpen,
+  Plug,
+  Globe,
 } from 'lucide-react';
 import { useChatStore } from '@/stores/chat-store';
-import { useSettingsStore } from '@/stores/settings-store';
 import { useUIStore } from '@/stores/ui-store';
-import { Attachment } from '@/types/chat';
+import { useSettingsStore } from '@/stores/settings-store';
+import { PersonaSelector } from './persona-selector';
+
+interface SlashCommandItem {
+  id: string;
+  command: string;
+  label: string;
+  description: string;
+  insertText?: string;
+}
+
+const CORE_SLASH_COMMANDS: SlashCommandItem[] = [
+  {
+    id: 'konektor',
+    command: '/connectors',
+    label: 'Buka Konektor AI & Integrasi',
+    description: 'Atur konektor server, GitHub, WA-Bot, dan integrasi alat.',
+  },
+  {
+    id: 'terminal-live',
+    command: '/cli',
+    label: 'Buka Terminal CLI & Web Aktif',
+    description: 'Buka panel eksekusi bash interaktif dan inspektor Chrome live.',
+  },
+  {
+    id: 'katalog-skill',
+    command: '/skills',
+    label: 'Buka Katalog Modul Skill',
+    description: 'Lihat, cari, baca, atau edit 70+ modul keahlian di server.',
+  },
+  {
+    id: 'cari-web',
+    command: '/web',
+    label: 'Pencarian Web Multi-Sumber ([CARI_WEB])',
+    description: 'Cari sumber berita & referensi web terbaru lengkap dengan logo situs.',
+    insertText: '[CARI_WEB: ',
+  },
+  {
+    id: 'buka-web',
+    command: '/buka',
+    label: 'Baca Halaman via Chrome ([BUKA_WEB])',
+    description: 'Buka URL menggunakan Google Chrome headless dan ekstrak teks DOM.',
+    insertText: '[BUKA_WEB: https://',
+  },
+  {
+    id: 'run-bash',
+    command: '/bash',
+    label: 'Jalankan Perintah Server ([RUN_BASH])',
+    description: 'Eksekusi perintah Linux bash di server VPS (khusus Admin).',
+    insertText: '[RUN_BASH: ',
+  },
+  {
+    id: 'baca-skill',
+    command: '/skill',
+    label: 'Panggil Modul Skill ([BACA_SKILL])',
+    description: 'Baca dokumentasi SOP dari folder /root/ai-chat/skills.',
+    insertText: '[BACA_SKILL: ',
+  },
+  {
+    id: 'cek-cuaca',
+    command: '/cuaca',
+    label: 'Prakiraan Cuaca Real-Time ([CEK_CUACA])',
+    description: 'Ambil cuaca terkini dari Open-Meteo berdasarkan kota atau GPS.',
+    insertText: '[CEK_CUACA: ',
+  },
+  {
+    id: 'ig-download',
+    command: '/ig',
+    label: 'Unduh Video Instagram Reels/Postingan',
+    description: 'Tempel tautan Instagram (Reels/Post) lalu sistem mengunduh videonya.',
+    insertText: '/ig https://www.instagram.com/reel/',
+  },
+  {
+    id: 'tavily-cari',
+    command: '/tavily',
+    label: 'Pencarian Web Tavily (Skill)',
+    description: 'Cari web lewat skill Tavily: hasil bersih, filter domain, rentang waktu.',
+    insertText: '[BACA_SKILL: tavily-search] ',
+  },
+  {
+    id: 'tavily-extract',
+    command: '/extract',
+    label: 'Ekstrak Isi Halaman (Tavily Extract)',
+    description: 'Ambil teks/markdown bersih dari URL, termasuk halaman ber-JavaScript.',
+    insertText: '[BACA_SKILL: tavily-extract] ',
+  },
+  {
+    id: 'tavily-research',
+    command: '/research',
+    label: 'Riset Mendalam Bersitasi (Tavily Research)',
+    description: 'Riset multi-sumber dengan sitasi; cocok untuk analisis & perbandingan.',
+    insertText: '[BACA_SKILL: tavily-research] ',
+  },
+];
 
 export const Composer: React.FC = () => {
   const {
     sendMessage,
     stopGeneration,
     isGenerating,
-    activeModelId,
-    activeProviderId,
-    models,
     attachments,
     addAttachment,
     removeAttachment,
+    activeConversationId,
+    activeModelId,
+    models,
+    systemPrompt,
+    setSystemPrompt,
     temperature,
     topP,
-    maxTokens,
-    reasoningEffort,
-    messages,
-    systemPrompt,
     setParameters,
-    setSystemPrompt,
+    userLocation,
+    locationStatus,
+    requestUserLocation,
+    setUserLocation,
+    setLocationStatus,
   } = useChatStore();
 
+  const {
+    addToast,
+    composerInsertText,
+    clearComposerInsert,
+    setSkillsDialogOpen,
+    setConnectorsDialogOpen,
+    setWorkspaceOpen,
+    workspaceOpen,
+  } = useUIStore();
+
   const { settings } = useSettingsStore();
-  const { addToast } = useUIStore();
 
   const [input, setInput] = useState('');
-  const [paramsOpen, setParamsOpen] = useState(false);
-  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [showParams, setShowParams] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const draftKey = `antigravity_draft_${activeConversationId || 'new'}`;
 
-  const activeModel = models.find(m => m.modelId === activeModelId || m.id === activeModelId);
-
-  const getModelDisplayName = (): string => {
-    const raw = activeModel?.displayName || activeModel?.name || activeModelId || 'AI';
-    let name = raw;
-    if (name.includes(':')) name = name.split(':').pop() || name;
-    if (name.includes('/')) name = name.split('/').pop() || name;
-    name = name.replace(/:free$/i, '').trim();
-
-    if (/qwen/i.test(name)) {
-      if (/3\.8/i.test(name)) return 'Qwen 3.8';
-      if (/3\.7/i.test(name)) return 'Qwen 3.7';
-      if (/3\.5/i.test(name)) return 'Qwen 3.5';
-      return 'Qwen';
-    }
-    if (/claude/i.test(name)) {
-      if (/sonnet/i.test(name)) return 'Claude Sonnet';
-      if (/opus/i.test(name)) return 'Claude Opus';
-      if (/haiku/i.test(name)) return 'Claude Haiku';
-      return 'Claude';
-    }
-    if (/deepseek/i.test(name)) {
-      if (/r1/i.test(name)) return 'DeepSeek R1';
-      if (/v4/i.test(name)) return 'DeepSeek V4';
-      return 'DeepSeek';
-    }
-    if (/gemini/i.test(name)) {
-      if (/flash/i.test(name)) return 'Gemini Flash';
-      if (/pro/i.test(name)) return 'Gemini Pro';
-      return 'Gemini';
-    }
-    if (/gpt/i.test(name)) {
-      const match = name.match(/gpt-[\w.]+/i);
-      return match ? match[0].toUpperCase() : 'GPT';
-    }
-    if (/grok/i.test(name)) return 'Grok';
-    if (/mistral|codestral/i.test(name)) return 'Mistral';
-    if (/kimi/i.test(name)) return 'Kimi';
-    if (/minimax/i.test(name)) return 'MiniMax';
-
-    return activeModel?.displayName || name;
-  };
-
-  const isVisionCapable = (model?: any, modelId?: string): boolean => {
-    if (!model && !modelId) return true;
-    if (model?.capabilities?.vision) return true;
-    const id = (model?.modelId || model?.name || modelId || '').toLowerCase();
-    return (
-      id.includes('vision') ||
-      id.includes('claude') ||
-      id.includes('gpt-4') ||
-      id.includes('gpt-5') ||
-      id.includes('gemini') ||
-      id.includes('qwen') ||
-      id.includes('vl') ||
-      id.includes('grok') ||
-      id.includes('minimax') ||
-      id.includes('sensenova')
-    );
-  };
-
-  // Close attachment dropdown when clicking outside or pressing Escape
+  // Restore saved draft when switching conversations or reloading
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
-        setAttachMenuOpen(false);
+    if (typeof window === 'undefined') return;
+    try {
+      const savedDraft = localStorage.getItem(draftKey);
+      setInput(savedDraft || '');
+    } catch {}
+  }, [draftKey]);
+
+  // Persist draft automatically as user types
+  const updateInputWithDraft = (nextVal: string | ((prev: string) => string)) => {
+    setInput((prev) => {
+      const resolved = typeof nextVal === 'function' ? nextVal(prev) : nextVal;
+      if (typeof window !== 'undefined') {
+        try {
+          if (resolved.trim()) {
+            localStorage.setItem(draftKey, resolved);
+          } else {
+            localStorage.removeItem(draftKey);
+          }
+        } catch {}
       }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setAttachMenuOpen(false);
-    };
+      return resolved;
+    });
+  };
 
-    if (attachMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('touchstart', handleClickOutside);
-      document.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [attachMenuOpen]);
+  const activeModel = models.find(
+    (m) => m.modelId === activeModelId || m.id === activeModelId
+  );
 
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = `${Math.min(Math.max(scrollHeight, 44), 200)}px`;
-    }
+  const slashQuery = useMemo(() => {
+    const trimmed = input.trimStart();
+    if (!trimmed.startsWith('/')) return null;
+    if (trimmed.includes(' ') || trimmed.includes('\n')) return null;
+    return trimmed.slice(1).toLowerCase();
   }, [input]);
 
-  const handleSend = () => {
-    if ((!input.trim() && attachments.length === 0) || isGenerating) return;
-    sendMessage(input.trim());
-    setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = '44px';
+  const filteredSlashCommands = useMemo(() => {
+    if (slashQuery === null) return [];
+    if (!slashQuery) return CORE_SLASH_COMMANDS;
+    return CORE_SLASH_COMMANDS.filter(
+      (item) =>
+        item.command.slice(1).includes(slashQuery) ||
+        item.label.toLowerCase().includes(slashQuery)
+    );
+  }, [slashQuery]);
+
+  useEffect(() => {
+    setSlashIndex(0);
+  }, [slashQuery]);
+
+  const executeSlashCommand = (item: SlashCommandItem) => {
+    if (item.id === 'konektor') {
+      updateInputWithDraft('');
+      setConnectorsDialogOpen(true);
+      return;
     }
+    if (item.id === 'terminal-live') {
+      updateInputWithDraft('');
+      setWorkspaceOpen(true, 'terminal');
+      return;
+    }
+    if (item.id === 'katalog-skill') {
+      updateInputWithDraft('');
+      setSkillsDialogOpen(true);
+      return;
+    }
+    if (item.insertText) {
+      updateInputWithDraft(item.insertText);
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 20);
+    }
+  };
+
+  useEffect(() => {
+    if (composerInsertText) {
+      updateInputWithDraft((prev) => {
+        const prefix = prev.trim() ? prev + '\n\n' : '';
+        return prefix + composerInsertText;
+      });
+      clearComposerInsert();
+      setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 50);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composerInsertText, clearComposerInsert]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    const nextHeight = Math.min(textarea.scrollHeight, 160);
+    textarea.style.height = `${Math.max(32, nextHeight)}px`;
+  }, [input]);
+
+  const toggleVoiceInput = () => {
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      addToast('Browser ini belum mendukung fitur Speech-to-Text.', 'error');
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'id-ID';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results?.[0]?.[0]?.transcript;
+        if (transcript) {
+          updateInputWithDraft((prev) => (prev ? `${prev} ${transcript}` : transcript));
+        }
+      };
+
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setIsListening(false);
+    }
+  };
+
+  const handleToggleLocation = async () => {
+    if (locationStatus === 'granted' && userLocation) {
+      setUserLocation(null);
+      setLocationStatus('idle');
+      return;
+    }
+    const loc = await requestUserLocation({ ipFallback: true });
+    if (!loc) {
+      addToast('Gagal mengakses lokasi.', 'error');
+    }
+  };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isGenerating) return;
+    if (!input.trim() && attachments.length === 0) return;
+
+    // Minta izin notifikasi sistem HP secara halus agar bisa memberi tahu saat tugas latar belakang selesai
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'default'
+    ) {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    const currentText = input;
+    updateInputWithDraft('');
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(draftKey);
+        localStorage.removeItem('antigravity_draft_new');
+      } catch {}
+    }
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '32px';
+    }
+    await sendMessage(currentText);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Regular Enter now only adds a new line (does NOT send).
-    // Ctrl+Enter or Cmd+Enter can be used to send from physical keyboard.
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (filteredSlashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex((prev) => (prev + 1) % filteredSlashCommands.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex(
+          (prev) => (prev - 1 + filteredSlashCommands.length) % filteredSlashCommands.length
+        );
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        executeSlashCommand(filteredSlashCommands[slashIndex]);
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && settings.sendOnEnter !== false) {
       e.preventDefault();
-      handleSend();
+      handleSubmit();
     }
   };
 
-  // Upload handler
-  const handleFileUpload = async (files: FileList | File[]) => {
-    setIsUploading(true);
+  const processFiles = async (files: FileList | File[]) => {
     for (const file of Array.from(files)) {
-      const isImg = file.type.startsWith('image/');
-      if (isImg && !isVisionCapable(activeModel, activeModelId)) {
-        addToast(`Perhatian: Model "${activeModel?.displayName || activeModelId}" mungkin kurang optimal untuk analisis visual/mata. Disarankan gunakan Claude Sonnet atau GPT-4o.`, 'info');
+      if (file.size > 20 * 1024 * 1024) {
+        addToast(`Ukuran berkas ${file.name} melebihi batas 20MB`, 'error');
+        continue;
       }
 
       const formData = new FormData();
@@ -188,378 +399,435 @@ export const Composer: React.FC = () => {
           method: 'POST',
           body: formData,
         });
-
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'Upload failed');
-        }
-
         const data = await res.json();
-        const processed = data.file;
-
-        let dataUrl: string | undefined;
-        if (isImg) {
-          // Convert to base64 dataUrl for direct multi-modal vision prompt
-          dataUrl = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(file);
-          });
+        if (!res.ok) throw new Error(data.error || 'Upload gagal');
+        const att = data.attachment || data.file;
+        if (att) {
+          addAttachment(att);
+          addToast(`Berkas ${file.name} siap dilampirkan`, 'success');
         }
-
-        addAttachment({
-          id: processed.id,
-          name: processed.name,
-          mimeType: processed.mimeType,
-          size: processed.size,
-          url: processed.url,
-          dataUrl,
-        });
-
-        addToast(`Attached: ${processed.name}`, 'info');
       } catch (err: any) {
-        addToast(err.message, 'error');
+        addToast(err.message || 'Gagal mengunggah berkas', 'error');
       }
     }
-    setIsUploading(false);
   };
 
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFileUpload(e.dataTransfer.files);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      await processFiles(e.target.files);
+      e.target.value = '';
     }
   };
 
-  // Paste image handler
-  const handlePaste = (e: React.ClipboardEvent) => {
-    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+
+    if (imageFiles.length > 0) {
       e.preventDefault();
-      handleFileUpload(e.clipboardData.files);
+      await processFiles(imageFiles);
     }
   };
 
   return (
     <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={`relative w-full max-w-3xl mx-auto px-3 sm:px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-5 transition-all ${
-        isDragging ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''
-      }`}
+      className="w-full px-3 sm:px-6 pb-3 pt-1 bg-background/95 backdrop-blur-md z-10 font-sans"
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
+      onDragLeave={() => setIsDragging(false)}
+      onDrop={async (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          await processFiles(e.dataTransfer.files);
+        }
+      }}
     >
-      {/* Hidden file inputs for Gallery, Camera, and Documents */}
-      <input
-        type="file"
-        ref={galleryInputRef}
-        accept="image/*"
-        onChange={(e) => {
-          if (e.target.files) handleFileUpload(e.target.files);
-          e.target.value = '';
-        }}
-        multiple
-        className="hidden"
-      />
-      <input
-        type="file"
-        ref={cameraInputRef}
-        accept="image/*"
-        capture="environment"
-        onChange={(e) => {
-          if (e.target.files) handleFileUpload(e.target.files);
-          e.target.value = '';
-        }}
-        className="hidden"
-      />
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={(e) => {
-          if (e.target.files) handleFileUpload(e.target.files);
-          e.target.value = '';
-        }}
-        multiple
-        className="hidden"
-      />
-
-      {/* Parameter drawer modal */}
-      {paramsOpen && (
-        <div className="mb-2 p-3 sm:p-4 rounded-xl border border-border bg-card shadow-lg text-xs space-y-3 animate-slide-in-up max-h-[60vh] overflow-y-auto">
-          <div className="flex items-center justify-between font-semibold text-foreground border-b border-border/50 pb-2">
-            <span>Model Parameters & System Prompt</span>
-            <button
-              onClick={() => setParamsOpen(false)}
-              className="text-muted-foreground hover:text-foreground p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* System Prompt */}
-          <div>
-            <label className="block text-muted-foreground mb-1 font-medium">System Instructions</label>
-            <textarea
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="e.g. You are an expert TypeScript architect..."
-              className="w-full p-2 rounded-lg border border-border bg-background text-foreground text-xs h-16 resize-y focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Temperature */}
-            <div>
-              <div className="flex justify-between text-muted-foreground mb-1">
-                <span>Temperature</span>
-                <span>{temperature}</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="2"
-                step="0.05"
-                value={temperature}
-                onChange={(e) => setParameters({ temperature: parseFloat(e.target.value) })}
-                className="w-full accent-primary"
-              />
+      <div className="max-w-3xl mx-auto relative">
+        {/* Slash Command Menu Popover */}
+        {filteredSlashCommands.length > 0 && (
+          <div className="mb-2 rounded-xl border border-border bg-card shadow-xl overflow-hidden">
+            <div className="px-3 py-1.5 border-b border-border bg-secondary/60 flex items-center justify-between text-[11px] font-mono text-muted-foreground">
+              <span>Perintah & Konektor Cepat</span>
+              <span>↑↓ Pilih · Enter Pasang</span>
             </div>
-
-            {/* Top P */}
-            <div>
-              <div className="flex justify-between text-muted-foreground mb-1">
-                <span>Top P</span>
-                <span>{topP}</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={topP}
-                onChange={(e) => setParameters({ topP: parseFloat(e.target.value) })}
-                className="w-full accent-primary"
-              />
-            </div>
-
-            {/* Max Output Tokens */}
-            <div>
-              <div className="flex justify-between text-muted-foreground mb-1">
-                <span>Max Tokens</span>
-                <span>{maxTokens || 'Default'}</span>
-              </div>
-              <input
-                type="number"
-                placeholder="e.g. 4096"
-                value={maxTokens || ''}
-                onChange={(e) => setParameters({ maxTokens: e.target.value ? parseInt(e.target.value, 10) : undefined })}
-                className="w-full p-1.5 rounded border border-border bg-background text-foreground text-xs"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Composer Box */}
-      <div className="relative flex flex-col rounded-2xl border border-border/60 bg-card/75 backdrop-blur-xl shadow-md hover:border-border focus-within:border-foreground/30 focus-within:shadow-xl transition-all">
-        {/* Attachment preview pills */}
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 p-3 pb-0">
-            {attachments.map((att) => (
-              <div
-                key={att.id}
-                className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-lg border border-border bg-muted/60 text-xs text-foreground group"
-              >
-                {att.mimeType.startsWith('image/') || att.url.match(/\.(png|jpg|jpeg|webp)$/i) ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={att.dataUrl || att.url} alt={att.name} className="w-7 h-7 rounded-md object-cover border border-border/50 shadow-xs" />
-                ) : (
-                  <FileText className="w-4 h-4 text-primary shrink-0" />
-                )}
-                <span className="truncate max-w-[140px] font-medium">{att.name}</span>
-                <span className="text-[10px] text-muted-foreground shrink-0">
-                  {(att.size / 1024).toFixed(0)}KB
-                </span>
+            <div className="divide-y divide-border/50 max-h-56 overflow-y-auto">
+              {filteredSlashCommands.map((item, idx) => (
                 <button
-                  onClick={() => removeAttachment(att.id)}
-                  className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+                  key={item.id}
+                  type="button"
+                  onClick={() => executeSlashCommand(item)}
+                  className={`w-full px-3.5 py-2 text-left flex items-center justify-between gap-3 transition-colors ${
+                    idx === slashIndex ? 'bg-primary/10 text-foreground' : 'hover:bg-muted/60'
+                  }`}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-semibold text-primary">
+                        {item.command}
+                      </span>
+                      <span className="text-xs font-medium text-foreground">{item.label}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                      {item.description}
+                    </p>
+                  </div>
                 </button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Text Input */}
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={messages.length > 0 ? `Balas ${getModelDisplayName()}...` : `Tanya apa saja ke ${getModelDisplayName()}...`}
-          rows={1}
-          className="w-full px-4 pt-3.5 pb-2 bg-transparent text-foreground placeholder:text-muted-foreground/60 text-base sm:text-[15px] resize-none focus:outline-none leading-relaxed"
-        />
-
-        {/* Composer Toolbar - Claude Style */}
-        <div className="flex items-center justify-between px-3 py-2 text-muted-foreground">
-          {/* Left tools: Circular Plus & Model pill */}
-          <div className="flex items-center gap-2">
-            {/* Attachment Button & Popup Menu */}
-            <div className="relative">
+        {/* Quick Model Parameters Drawer */}
+        {showParams && (
+          <div className="mb-2 p-3.5 rounded-xl border border-border bg-card shadow-lg space-y-3 text-xs">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <span className="font-semibold text-foreground">
+                Parameter Sesi ({activeModel?.displayName || activeModelId})
+              </span>
               <button
                 type="button"
-                onClick={() => setAttachMenuOpen(!attachMenuOpen)}
-                disabled={isUploading}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all touch-manipulation ${
-                  attachMenuOpen
-                    ? 'bg-foreground text-background shadow-md'
-                    : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground'
-                }`}
-                title="Lampirkan foto atau dokumen"
-                aria-label="Lampirkan foto atau dokumen"
+                onClick={() => setShowParams(false)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded"
               >
-                <Plus className={`w-4 h-4 transition-transform duration-200 ${attachMenuOpen ? 'rotate-45' : ''}`} />
+                <X className="w-3.5 h-3.5" />
               </button>
-
-              {/* Elegant Dropdown / Floating Card for Gallery, Camera & Files */}
-              {attachMenuOpen && (
-                <div
-                  ref={attachMenuRef}
-                  className="absolute bottom-11 left-0 z-40 flex flex-col gap-1 p-1.5 rounded-2xl border border-border/80 bg-card/95 backdrop-blur-2xl shadow-2xl min-w-[210px] animate-in fade-in zoom-in-95 duration-150 text-foreground"
-                >
-                  {/* Option 1: Galeri Foto (Direct Photo Gallery Picker) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachMenuOpen(false);
-                      galleryInputRef.current?.click();
-                    }}
-                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted text-foreground text-xs font-medium transition-colors text-left group touch-manipulation"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                      <ImageIcon className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Galeri Foto</div>
-                      <div className="text-[10px] text-muted-foreground">Album & galeri perangkat</div>
-                    </div>
-                  </button>
-
-                  {/* Option 2: Kamera Langsung (Direct Camera Snap) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachMenuOpen(false);
-                      cameraInputRef.current?.click();
-                    }}
-                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted text-foreground text-xs font-medium transition-colors text-left group touch-manipulation"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                      <Camera className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Ambil Foto (Kamera)</div>
-                      <div className="text-[10px] text-muted-foreground">Potret langsung</div>
-                    </div>
-                  </button>
-
-                  {/* Option 3: Dokumen & File */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachMenuOpen(false);
-                      fileInputRef.current?.click();
-                    }}
-                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted text-foreground text-xs font-medium transition-colors text-left group touch-manipulation"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                      <FileText className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Dokumen & File</div>
-                      <div className="text-[10px] text-muted-foreground">PDF, TXT, kode, arsip</div>
-                    </div>
-                  </button>
-                </div>
-              )}
             </div>
 
-            {/* Claude Model Selector Pill */}
-            <button
-              onClick={() => useUIStore.getState().setModelSelectorOpen(true)}
-              className="px-3 py-1.5 rounded-full bg-muted/60 hover:bg-muted text-foreground text-xs font-medium flex items-center gap-1.5 transition-colors max-w-[180px] sm:max-w-xs truncate touch-manipulation"
-              title="Pilih Model"
-            >
-              <span className="truncate">{activeModel?.displayName || activeModelId || 'Claude'}</span>
-            </button>
-
-            <button
-              onClick={() => setParamsOpen(!paramsOpen)}
-              className={`p-1.5 rounded-lg transition-colors touch-manipulation ${
-                paramsOpen ? 'text-primary bg-primary/10' : 'text-muted-foreground/70 hover:text-foreground'
-              }`}
-              title="Parameter AI"
-              aria-label="Parameter AI"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Right tool: Voice/Waveform icons or Send/Stop button */}
-          <div className="flex items-center gap-1">
-            {isGenerating ? (
-              <button
-                onClick={stopGeneration}
-                className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center hover:opacity-90 active:scale-95 transition-all touch-manipulation"
-                title="Hentikan"
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
-              </button>
-            ) : input.trim() || attachments.length > 0 ? (
-              <button
-                onClick={handleSend}
-                className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 active:scale-95 transition-all shadow-sm touch-manipulation"
-                title="Kirim pesan"
-                aria-label="Kirim pesan"
-              >
-                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
-              </button>
-            ) : (
-              <div className="flex items-center gap-1 text-muted-foreground/70">
-                <button
-                  type="button"
-                  onClick={() => useUIStore.getState().addToast('Voice input siap digunakan', 'info')}
-                  className="p-1.5 rounded-full hover:text-foreground hover:bg-muted/40 transition-colors touch-manipulation"
-                  title="Voice input"
-                >
-                  <Mic className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => useUIStore.getState().addToast('Voice mode siap digunakan', 'info')}
-                  className="p-1.5 rounded-full hover:text-foreground hover:bg-muted/40 transition-colors touch-manipulation"
-                  title="Audio mode"
-                >
-                  <AudioWaveform className="w-4 h-4" />
-                </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="flex justify-between mb-1">
+                  <label htmlFor="param-temp" className="text-muted-foreground">
+                    Temperature
+                  </label>
+                  <span className="font-mono font-semibold text-foreground">{temperature}</span>
+                </div>
+                <input
+                  id="param-temp"
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={temperature}
+                  onChange={(e) => setParameters({ temperature: parseFloat(e.target.value) })}
+                  className="w-full accent-primary cursor-pointer"
+                />
               </div>
-            )}
+
+              <div>
+                <div className="flex justify-between mb-1">
+                  <label htmlFor="param-top-p" className="text-muted-foreground">
+                    Top P
+                  </label>
+                  <span className="font-mono font-semibold text-foreground">{topP}</span>
+                </div>
+                <input
+                  id="param-top-p"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={topP}
+                  onChange={(e) => setParameters({ topP: parseFloat(e.target.value) })}
+                  className="w-full accent-primary cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="param-sys-prompt" className="block text-muted-foreground mb-1">
+                System Prompt Khusus Sesi Ini
+              </label>
+              <textarea
+                id="param-sys-prompt"
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                placeholder="Instruksi khusus untuk sesi percakapan ini..."
+                rows={2}
+                className="w-full p-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+              />
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Composer Box */}
+        <form
+          onSubmit={handleSubmit}
+          className={`relative rounded-2xl border transition-colors bg-card shadow-xs ${
+            isDragging
+              ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
+              : 'border-border focus-within:border-primary/60'
+          }`}
+        >
+          {/* Attachments Preview Bar */}
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-2.5 pb-1 border-b border-border/60">
+              {attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-lg bg-secondary border border-border text-xs group"
+                >
+                  {att.mimeType?.startsWith('image/') ? (
+                    <ImageIcon className="w-3.5 h-3.5 text-primary shrink-0" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
+                  )}
+                  <span className="truncate max-w-[150px] text-foreground font-medium">
+                    {att.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(att.id)}
+                    className="text-muted-foreground hover:text-destructive p-0.5 rounded"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Main Textarea (Compact) */}
+          <div className="px-3.5 pt-2.5 pb-1">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => updateInputWithDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder={`Kirim instruksi ke ${activeModel?.displayName || 'Asisten'} (ketik / untuk alat)...`}
+              rows={1}
+              className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/60 text-sm focus:outline-none resize-none max-h-[160px] leading-relaxed"
+            />
+          </div>
+
+          {/* Bottom Controls Toolbar */}
+          <div className="flex items-center justify-between px-2.5 pb-2 pt-0.5">
+            <div className="flex items-center gap-1 flex-wrap">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                multiple
+                className="hidden"
+              />
+              <input
+                type="file"
+                ref={galleryInputRef}
+                onChange={handleFileChange}
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+              />
+              <input
+                type="file"
+                ref={cameraInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+              />
+
+              {/* Plus / Attachment Menu */}
+              <div className="relative" ref={attachMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowAttachMenu((v) => !v)}
+                  className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors ${
+                    showAttachMenu
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                  }`}
+                  title="Lampirkan berkas atau foto"
+                >
+                  <Plus
+                    className={`w-4 h-4 transition-transform duration-150 ${
+                      showAttachMenu ? 'rotate-45' : ''
+                    }`}
+                  />
+                </button>
+
+                {showAttachMenu && (
+                  <div className="absolute bottom-9 left-0 w-52 rounded-xl border border-border bg-card shadow-xl py-1.5 z-30 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(false);
+                        galleryInputRef.current?.click();
+                      }}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-muted transition-colors text-foreground"
+                    >
+                      <ImageIcon className="w-4 h-4 text-primary" />
+                      <span>Galeri Foto / Video</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(false);
+                        fileInputRef.current?.click();
+                      }}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-muted transition-colors text-foreground"
+                    >
+                      <FileText className="w-4 h-4 text-primary" />
+                      <span>Dokumen / Berkas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(false);
+                        cameraInputRef.current?.click();
+                      }}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-muted transition-colors text-foreground"
+                    >
+                      <Camera className="w-4 h-4 text-primary" />
+                      <span>Ambil Foto Kamera</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(false);
+                        setConnectorsDialogOpen(true);
+                      }}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-muted transition-colors text-foreground border-t border-border mt-1 pt-2"
+                    >
+                      <Plug className="w-4 h-4 text-primary" />
+                      <span>Konektor AI & Integrasi</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenu(false);
+                        setSkillsDialogOpen(true);
+                      }}
+                      className="w-full px-3 py-2 text-left flex items-center gap-2.5 hover:bg-muted transition-colors text-foreground"
+                    >
+                      <BookOpen className="w-4 h-4 text-primary" />
+                      <span>Katalog Skill Server</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Persona picker — mobile only; desktop uses the header picker */}
+              <div className="md:hidden">
+                <PersonaSelector variant="composer" />
+              </div>
+
+              {/* Connectors Pill Button */}
+              <button
+                type="button"
+                onClick={() => setConnectorsDialogOpen(true)}
+                className="h-7 px-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 flex items-center gap-1 text-[11px] font-medium transition-colors"
+                title="Buka Konektor AI Modern"
+              >
+                <Plug className="w-3.5 h-3.5 text-primary" />
+                <span className="hidden sm:inline">Konektor</span>
+              </button>
+
+              {/* Live CLI / Web Workspace Quick Open */}
+              <button
+                type="button"
+                onClick={() => setWorkspaceOpen(!workspaceOpen, 'browser')}
+                className={`h-7 px-2 rounded-lg flex items-center gap-1 text-[11px] font-medium transition-colors ${
+                  workspaceOpen
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                }`}
+                title="Buka Terminal CLI & Web Aktif di bawah chat"
+              >
+                <Terminal className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">CLI/Web</span>
+              </button>
+
+              {/* GPS Location Button */}
+              <button
+                type="button"
+                onClick={handleToggleLocation}
+                disabled={locationStatus === 'requesting'}
+                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors ${
+                  locationStatus === 'granted' && userLocation
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                }`}
+                title={
+                  locationStatus === 'granted' && userLocation
+                    ? `Lokasi aktif: ${userLocation.label || `${userLocation.lat.toFixed(2)}, ${userLocation.lon.toFixed(2)}`}`
+                    : 'Aktifkan lokasi GPS'
+                }
+              >
+                {locationStatus === 'requesting' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                ) : locationStatus === 'granted' && userLocation ? (
+                  <MapPin className="w-3.5 h-3.5" />
+                ) : (
+                  <MapPinOff className="w-3.5 h-3.5" />
+                )}
+              </button>
+
+              {/* Session Parameters Toggle */}
+              <button
+                type="button"
+                onClick={() => setShowParams(!showParams)}
+                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors ${
+                  showParams
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                }`}
+                title="Parameter sesi (Temperature & Prompt)"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Right: Voice Input & Send / Stop Button */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={toggleVoiceInput}
+                className={`h-7 w-7 rounded-lg flex items-center justify-center transition-colors ${
+                  isListening
+                    ? 'bg-destructive/15 text-destructive animate-pulse'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                }`}
+                title={isListening ? 'Hentikan rekaman suara' : 'ikte suara'}
+              >
+                {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+              </button>
+
+              {isGenerating ? (
+                <button
+                  type="button"
+                  onClick={stopGeneration}
+                  className="h-7 px-2.5 rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors flex items-center gap-1 text-xs font-medium"
+                  title="Hentikan generasi (Esc)"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>Hentikan</span>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim() && attachments.length === 0}
+                  className="h-7 w-7 rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center justify-center"
+                  title="Kirim pesan (Enter)"
+                >
+                  <ArrowUp className="w-4 h-4 stroke-[2.4]" />
+                </button>
+              )}
+            </div>
+          </div>
+        </form>
       </div>
     </div>
   );

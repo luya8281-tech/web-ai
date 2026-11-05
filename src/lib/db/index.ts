@@ -36,6 +36,17 @@ function getDatabase(): Database.Database {
     db.exec(schemaSql);
   }
 
+  // Migrasi ringan untuk database lama: CREATE TABLE IF NOT EXISTS tidak
+  // menambahkan kolom baru pada tabel yang sudah ada.
+  try {
+    const settingCols = db.prepare('PRAGMA table_info(user_settings)').all() as Array<{ name: string }>;
+    if (!settingCols.some((c) => c.name === 'memory_enabled')) {
+      db.exec('ALTER TABLE user_settings ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 1');
+    }
+  } catch (err: any) {
+    console.warn('[DB] Migrasi memory_enabled gagal:', err.message);
+  }
+
   if (process.env.NODE_ENV !== 'production') {
     global.__dbInstance = db;
   }

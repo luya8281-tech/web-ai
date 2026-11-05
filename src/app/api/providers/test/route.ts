@@ -13,7 +13,7 @@ const TestSchema = z.object({
   providerId: z.string().optional(),
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
-  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock', 'antigravity-agent']).optional(),
+  protocol: z.enum(['openai-compatible', 'anthropic-compatible', 'mock', 'antigravity-agent', 'codex-cli', 'opencode-cli']).optional(),
 });
 
 export async function POST(req: NextRequest) {

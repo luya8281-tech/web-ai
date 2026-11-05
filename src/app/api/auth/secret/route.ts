@@ -17,7 +17,6 @@ export async function POST(req: NextRequest) {
     }
 
     const serverSecret = process.env.AUTH_SECRET || 'chat_vps_secret_key_889214710';
-
     if (!secret || secret.trim() !== serverSecret.trim()) {
       return NextResponse.json({ error: 'Kunci rahasia / password salah.' }, { status: 401 });
     }

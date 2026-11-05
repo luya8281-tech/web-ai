@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ActionInfo } from '@/types/chat';
+import { ActionInfo, SearchSource } from '@/types/chat';
 
 export interface Toast {
   id: string;
@@ -18,6 +18,9 @@ interface UIState {
   vaultDialogOpen: boolean;
   commandPaletteOpen: boolean;
   searchModalOpen: boolean;
+  sourcesDialogOpen: boolean;
+  sourcesDialogSources: SearchSource[];
+  sourcesDialogTitle: string;
   workspaceOpen: boolean;
   workspaceTab: WorkspaceTab;
   workspaceAction: ActionInfo | null;
@@ -37,6 +40,8 @@ interface UIState {
   setVaultDialogOpen: (open: boolean) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setSearchModalOpen: (open: boolean) => void;
+  openSourcesDialog: (sources: SearchSource[], title?: string) => void;
+  closeSourcesDialog: () => void;
   setWorkspaceOpen: (open: boolean, tab?: WorkspaceTab, action?: ActionInfo | null) => void;
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   setSearchSourceQuota: (quota: number) => void;
@@ -49,7 +54,7 @@ interface UIState {
   removeToast: (id: string) => void;
 }
 
-const DEFAULT_CONNECTORS = ['web-search', 'server-ops', 'browser-agent', 'wa-bot', 'github', 'sqlite'];
+const DEFAULT_CONNECTORS = ['web-search', 'server-ops', 'browser-agent', 'wa-bridge', 'github', 'sqlite'];
 
 export const useUIStore = create<UIState>((set, get) => ({
   sidebarOpen: true,
@@ -60,6 +65,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   vaultDialogOpen: false,
   commandPaletteOpen: false,
   searchModalOpen: false,
+  sourcesDialogOpen: false,
+  sourcesDialogSources: [],
+  sourcesDialogTitle: 'Sumber Referensi',
   workspaceOpen: false,
   workspaceTab: 'terminal',
   workspaceAction: null,
@@ -96,6 +104,13 @@ export const useUIStore = create<UIState>((set, get) => ({
   setVaultDialogOpen: (open) => set({ vaultDialogOpen: open }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setSearchModalOpen: (open) => set({ searchModalOpen: open }),
+  openSourcesDialog: (sources, title) =>
+    set({
+      sourcesDialogOpen: true,
+      sourcesDialogSources: sources || [],
+      sourcesDialogTitle: title || 'Sumber Referensi',
+    }),
+  closeSourcesDialog: () => set({ sourcesDialogOpen: false }),
   setWorkspaceOpen: (open, tab, action) =>
     set((state) => ({
       workspaceOpen: open,

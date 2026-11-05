@@ -59,6 +59,21 @@ export async function GET(req: NextRequest) {
 
     const ghUser = await userRes.json();
 
+    // Check single-user workspace whitelist
+    const authMode = (process.env.AUTH_MODE || 'single-user').toLowerCase().trim();
+    const adminUsername = (process.env.GITHUB_ADMIN_USERNAME || 'luya8281-tech').toLowerCase().trim();
+    const allowedEnv = (process.env.ALLOWED_GITHUB_USERS || adminUsername).toLowerCase();
+    const allowedUsers = allowedEnv.split(',').map((u) => u.trim()).filter(Boolean);
+
+    const isAllowed = allowedUsers.length === 0 || allowedUsers.includes(ghUser.login.toLowerCase());
+
+    if (authMode === 'single-user' && !isAllowed) {
+      console.warn(`[GitHub Auth] Unauthorized login blocked for user: ${ghUser.login}`);
+      return NextResponse.redirect(
+        `${appUrl}/login?error=${encodeURIComponent('Akses ditolak: Workspace ini bersifat privat khusus pemilik (@luya8281-tech).')}`
+      );
+    }
+
     // 3. If email is not public, fetch primary email
     let email = ghUser.email;
     if (!email) {

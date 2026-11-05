@@ -46,12 +46,97 @@ export interface BrowserAgentResult {
   title?: string;
   text?: string;
   elements?: Array<{ ref: string; tag: string; type?: string; label: string; value?: string; checked?: boolean; inFrame?: boolean }>;
-  captcha?: { turnstilePresent?: boolean; turnstileSolved?: boolean; cloudflareFrame?: boolean };
+  captcha?: { turnstilePresent?: boolean; turnstileSolved?: boolean; cloudframe?: boolean; cloudflareFrame?: boolean };
+  blocked?: boolean;
+  liveViewUrl?: string | null;
   screenshotPath?: string | null;
   screenshotUrl?: string | null;
   accounts?: Array<{ name: string; url: string; username: string; hasPassword: boolean; email: string }>;
   tabs?: Array<{ index: number; url: string }>;
+  // --- Profil browser persisten ---
+  profile?: string;
+  dir?: string;
+  switched?: boolean;
+  current?: string;
+  profiles?: Array<{ name: string; mtime?: string | null }>;
+  chromeSignin?: {
+    account?: string;
+    profile?: string;
+    signedIn?: boolean;
+    url?: string;
+    userFilled?: boolean;
+    passFilled?: boolean;
+    submitted?: boolean;
+    recoveryDismissed?: boolean;
+  };
   ms?: number;
+  // --- ZenRows ---
+  enabled?: boolean;
+  mode?: string;
+  activeSession?: boolean;
+  summary?: ZenRowsSummary;
+  cycle?: string;
+  okCount?: number;
+  total?: number;
+  results?: Array<{ key: string; ok: boolean; status: number | string; credits?: number; error?: string }>;
+  zenrows?: {
+    mode?: string;
+    key?: string;
+    cookies?: number | string[];
+    sessionCookie?: boolean;
+    blocked?: boolean;
+    remoteBlocked?: boolean;
+    turnstile?: { ok?: boolean; tokenLen?: number; clicks?: number; ms?: number };
+    login?: { ok?: boolean; url?: string; error?: string | null } | null;
+    cookiesNames?: string[];
+  };
+  // --- Cookie metadata (nilai cookie tidak pernah dikirim) ---
+  count?: number;
+  cookies?: Array<{
+    name: string;
+    domain: string;
+    path: string;
+    httpOnly?: boolean;
+    secure?: boolean;
+    sameSite?: string;
+    expires?: number;
+    valueLength?: number;
+  }>;
+}
+
+export interface ZenRowsKeyStatus {
+  index: number;
+  masked: string;
+  active: boolean;
+  usedCredits: number;
+  remainingCreditsEst: number;
+  cdPSessions?: number;
+  cdpSessions?: number;
+  cdpMinutesEst?: number;
+  apiCalls?: number;
+  bandwidthMBEst?: number;
+  nearQuota?: boolean;
+  exhausted?: boolean;
+  invalid?: boolean;
+  lastAuditStatus?: number | string | null;
+  lastError?: string | null;
+}
+
+export interface ZenRowsSummary {
+  currentCycle?: string;
+  cycleStart?: string;
+  cycleEnd?: string;
+  monthlyLimitPerKey?: number;
+  softRotateThreshold?: number;
+  totalKeys?: number;
+  activeKeyMasked?: string | null;
+  activeKeyIndex?: number;
+  lastAuditCycle?: string | null;
+  lastAuditAt?: string | null;
+  totalEstimatedUsedCredits?: number;
+  quotaApiAvailable?: boolean;
+  quotaNote?: string;
+  keys?: ZenRowsKeyStatus[];
 }
 
 /** Panggil daemon browser-agent. Mengembalikan objek hasil (selalu ada nilai). */
@@ -103,27 +188,53 @@ const text = (v: string) => v.trim();
 export function parseBrowserCommand(param: string): BrowserCommand {
   let raw = text(param || '');
 
-  // Penanda opsional "+layar" (mis. `buka https://x +layar` atau `klik e5 +layar`)
-  // meminta tangkapan layar pada aksi tersebut. Dipakai karena perintah `buka`
-  // tidak punya argumen lain untuk menyatakan hal ini.
+  // Penanda opsional di akhir perintah:
+  //   +layar    -> minta tangkapan layar pada aksi tersebut
+  //   +penuh    -> tangkapan layar seluruh tinggi halaman (fullPage)
+  //   +zenrows  -> paksa lewat ZenRows (mode hybrid, hemat kredit)
+  //   +cdp      -> paksa ZenRows mode CDP penuh (cookie terikat IP remote)
   let screenshot = false;
-  if (/\s\+layar$/i.test(raw)) {
-    screenshot = true;
-    raw = raw.replace(/\s\+layar$/i, '').trim();
+  let fullPage = false;
+  let viaZenRows = false;
+  let zenrowsMode: 'hybrid' | 'cdp' | undefined;
+  for (;;) {
+    const fm = raw.match(/\s\+([a-zA-Z_]+)$/);
+    if (!fm) break;
+    const flag = fm[1].toLowerCase();
+    if (flag === 'layar' || flag === 'screenshot') screenshot = true;
+    else if (flag === 'penuh' || flag === 'full') { screenshot = true; fullPage = true; }
+    else if (flag === 'zenrows') viaZenRows = true;
+    else if (flag === 'cdp') {
+      viaZenRows = true;
+      zenrowsMode = 'cdp';
+    } else if (flag === 'hybrid') zenrowsMode = 'hybrid';
+    else break;
+    raw = raw.slice(0, fm.index).trim();
   }
 
   const m = raw.match(/^([a-zA-Z_]+)\s*([\s\S]*)$/);
   const cmd = (m?.[1] || '').toLowerCase();
   const rest = text(m?.[2] || '');
   const pipe = () => rest.split('|').map((s) => s.trim());
-  const shot = <T extends Record<string, unknown>>(payload: T): T & { screenshot?: boolean } =>
-    screenshot ? { ...payload, screenshot: true } : payload;
+  const shot = <T extends Record<string, unknown>>(payload: T): T & { screenshot?: boolean; fullPage?: boolean } =>
+    screenshot ? { ...payload, screenshot: true, ...(fullPage ? { fullPage: true } : {}) } : payload;
+  const zr = <T extends Record<string, unknown>>(payload: T): T & { zenrows?: boolean; zenrowsMode?: string } => {
+    const out: Record<string, unknown> = { ...payload };
+    if (viaZenRows) out.zenrows = true;
+    if (zenrowsMode) out.zenrowsMode = zenrowsMode;
+    return out as T & { zenrows?: boolean; zenrowsMode?: string };
+  };
+  const zrLabel = viaZenRows ? ` via ZenRows${zenrowsMode === 'cdp' ? ' CDP' : ''}` : '';
 
   switch (cmd) {
     case 'buka':
     case 'open':
     case 'nav':
-      return { action: 'nav', payload: shot({ url: rest }), describe: `buka ${rest}${screenshot ? ' (+layar)' : ''}` };
+      return {
+        action: 'nav',
+        payload: zr(shot({ url: rest })),
+        describe: `buka ${rest}${zrLabel}${screenshot ? ' (+layar)' : ''}`,
+      };
 
     case 'snapshot':
     case 'snap':
@@ -165,7 +276,7 @@ export function parseBrowserCommand(param: string): BrowserCommand {
     case 'screenshot':
     case 'layar':
     case 'shot':
-      return { action: 'shot', payload: {}, describe: 'ambil tangkapan layar' };
+      return { action: 'shot', payload: fullPage ? { fullPage: true } : {}, describe: `ambil tangkapan layar${fullPage ? ' (penuh)' : ''}` };
 
     case 'tunggu':
     case 'wait':
@@ -178,7 +289,11 @@ export function parseBrowserCommand(param: string): BrowserCommand {
       return { action: 'open_tab', payload: { url: rest }, describe: `buka tab baru ${rest}` };
 
     case 'login':
-      return { action: 'login', payload: { account: rest }, describe: `login dengan akun tersimpan "${rest}"` };
+      return {
+        action: 'login',
+        payload: zr({ account: rest }),
+        describe: `login dengan akun tersimpan "${rest}"${zrLabel}`,
+      };
 
     case 'otp':
       return { action: 'otp', payload: { account: rest }, describe: `ambil kode OTP dari email "${rest}"`, needsApproval: true };
@@ -186,6 +301,77 @@ export function parseBrowserCommand(param: string): BrowserCommand {
     case 'vault':
     case 'akun':
       return { action: 'vault_list', payload: {}, describe: 'daftar akun tersimpan' };
+
+    case 'profil':
+    case 'profile': {
+      const arg = rest.replace(/^(pakai|use|ganti|switch)\s+/i, '').trim();
+      if (!arg || /^(daftar|list|semua|all)$/i.test(arg)) {
+        return { action: 'profile_list', payload: {}, describe: 'daftar profil browser persisten' };
+      }
+      return {
+        action: 'profile_use',
+        payload: { profile: arg },
+        describe: `pakai profil browser "${arg}"`,
+      };
+    }
+
+    case 'chrome': {
+      const parts = rest.split(/\s+/).filter(Boolean);
+      const sub = (parts[0] || '').toLowerCase();
+      const arg = (['signin', 'login', 'masuk', 'sync'].includes(sub) ? parts.slice(1) : parts).join(' ');
+      return {
+        action: 'chrome_signin',
+        payload: { account: arg || 'google_aionly' },
+        describe: `login Chrome (sinkronisasi) dengan akun "${arg || 'google_aionly'}"`,
+      };
+    }
+
+    case 'zenrows':
+    case 'zr': {
+      const parts = rest.split(/\s+/).filter(Boolean);
+      const sub = (parts[0] || 'status').toLowerCase();
+      const arg = parts.slice(1).join(' ');
+
+      if (sub === 'audit' || sub === 'riset' || sub === 'cek' || sub === 'quota' || sub === 'kuota') {
+        return {
+          action: 'zenrows_audit',
+          payload: {},
+          describe: 'audit kuota ZenRows (1 request murah per API key)',
+          needsApproval: true,
+        };
+      }
+      if (sub === 'tutup' || sub === 'close' || sub === 'stop' || sub === 'matikan') {
+        return { action: 'zenrows_close', payload: {}, describe: 'tutup sesi CDP ZenRows' };
+      }
+      if (sub === 'login' || sub === 'masuk') {
+        return {
+          action: 'login',
+          payload: { account: arg, via: 'zenrows' },
+          describe: `login akun tersimpan "${arg}" via ZenRows`,
+        };
+      }
+      if (sub === 'buka' || sub === 'open') {
+        return {
+          action: 'nav',
+          payload: { url: arg, zenrows: true },
+          describe: `buka ${arg} via ZenRows`,
+        };
+      }
+      return {
+        action: 'zenrows_status',
+        payload: {},
+        describe: 'status kuota & rotasi API key ZenRows',
+      };
+    }
+
+    case 'cookie':
+    case 'kuki':
+    case 'kukis':
+      return {
+        action: 'cookies',
+        payload: {},
+        describe: 'daftar nama cookie sesi (tanpa nilai)',
+      };
 
     case 'reset':
       return { action: 'reset', payload: {}, describe: 'tutup sesi browser' };
@@ -207,7 +393,8 @@ export function parseBrowserCommand(param: string): BrowserCommand {
         payload: {},
         describe: `perintah tidak dikenal "${cmd}"`,
         forbidden:
-          'Perintah [BROWSER] yang dikenal: buka, snapshot, klik, isi, tekan, scroll, kembali, screenshot, tunggu, tab, tab_baru, login, otp, vault, reset.',
+          'Perintah [BROWSER] yang dikenal: buka, snapshot, klik, isi, tekan, scroll, kembali, screenshot, tunggu, tab, tab_baru, login, otp, vault, profil, chrome, cookie, zenrows, reset. ' +
+          'Tambahkan +zenrows atau +cdp di akhir perintah buka/login untuk memakai ZenRows.',
       };
   }
 }
@@ -220,7 +407,10 @@ export function formatBrowserResult(cmd: BrowserCommand, res: BrowserAgentResult
   if (cmd.forbidden) return `${head}\nDITOLAK: ${cmd.forbidden}`;
 
   if (res.needsApproval) {
-    return `${head}\nPERLU PERSETUJUAN PENGGUNA: ambil OTP tidak dijalankan. Tanyakan lebih dulu kepada pengguna apakah boleh membaca email untuk mengambil kode; jalankan [BROWSER: otp ${cmd.payload.account}] lagi setelah pengguna menyetujui.`;
+    if (cmd.action === 'otp') {
+      return `${head}\nPERLU PERSETUJUAN PENGGUNA: ambil OTP tidak dijalankan. Tanyakan lebih dulu kepada pengguna apakah boleh membaca email untuk mengambil kode; jalankan [BROWSER: otp ${cmd.payload.account}] lagi setelah pengguna menyetujui.`;
+    }
+    return `${head}\nPERLU PERSETUJUAN PENGGUNA: ${res.error || 'aksi ini memakai kredit API.'} Tanyakan izin kepada pengguna; setelah ia menyetujui, jalankan perintah yang sama sekali lagi.`;
   }
 
   if (!res.ok) {
@@ -244,6 +434,69 @@ export function formatBrowserResult(cmd: BrowserCommand, res: BrowserAgentResult
     );
   }
 
+  if (res.summary) {
+    const s = res.summary;
+    lines.push(
+      `ZenRows: ${res.enabled === false ? 'NONAKTIF' : 'aktif'} | mode ${res.mode || 'hybrid'} | siklus ${s.currentCycle || '-'}`
+    );
+    if (s.totalKeys !== undefined) {
+      lines.push(
+        `Key: ${s.totalKeys} (dipakai ${s.activeKeyMasked || '-'}) | batas ${s.monthlyLimitPerKey ?? '?'} kredit/key | rotasi otomatis pada ${s.softRotateThreshold ?? '?'}`
+      );
+    }
+    if (s.lastAuditAt) {
+      lines.push(`Audit terakhir: ${s.lastAuditAt}${s.lastAuditCycle ? ` (siklus ${s.lastAuditCycle})` : ''}`);
+    }
+    for (const k of s.keys || []) {
+      const flags = [
+        k.active ? 'aktif' : null,
+        k.exhausted ? 'HABIS' : null,
+        k.invalid ? 'INVALID' : null,
+        k.nearQuota ? 'mendekati batas' : null,
+      ].filter(Boolean);
+      lines.push(
+        `  #${k.index + 1} ${k.masked} — ${k.usedCredits ?? 0}/${s.monthlyLimitPerKey ?? '?'} kredit, sisa ~${k.remainingCreditsEst ?? '?'}` +
+          (flags.length ? ` [${flags.join(', ')}]` : '')
+      );
+    }
+    if (res.activeSession !== undefined) lines.push(`Sesi CDP aktif: ${res.activeSession ? 'ya' : 'tidak'}`);
+    if (s.quotaNote) lines.push(`Catatan: ${s.quotaNote}`);
+  }
+
+  if (typeof res.okCount === 'number' && typeof res.total === 'number') {
+    lines.push(`Hasil audit: ${res.okCount}/${res.total} key valid${res.cycle ? ` (siklus ${res.cycle})` : ''}`);
+    for (const r of res.results || []) {
+      lines.push(
+        `  - ${r.key}: ${r.ok ? 'valid' : 'GAGAL'} (status ${r.status}${r.credits ? `, ${r.credits} kredit` : ''})` +
+          (r.error ? ` — ${r.error.slice(0, 120)}` : '')
+      );
+    }
+  }
+
+  if (res.zenrows) {
+    const z = res.zenrows;
+    const bits = [`mode ${z.mode || '-'}`];
+    if (z.key) bits.push(`key ${z.key}`);
+    if (typeof z.cookies === 'number') bits.push(`${z.cookies} cookie ditransfer`);
+    else if (Array.isArray(z.cookies) && z.cookies.length) bits.push(`cookie: ${z.cookies.join(', ')}`);
+    if (z.sessionCookie !== undefined) bits.push(z.sessionCookie ? 'cookie sesi ada' : 'cookie sesi belum ada');
+    if (z.turnstile) bits.push(`Turnstile ${z.turnstile.ok ? 'lolos' : 'belum lolos'}`);
+    if (z.blocked || z.remoteBlocked) bits.push('halaman masih terblokir');
+    if (z.login && z.login.ok === false) bits.push(`login gagal: ${z.login.error || 'tidak diketahui'}`);
+    lines.push(`ZenRows: ${bits.join(' | ')}`);
+  }
+
+  if (res.cookies && res.cookies.length) {
+    lines.push(`Cookie (${res.count ?? res.cookies.length}) — nilai tidak ditampilkan:`);
+    for (const c of res.cookies.slice(0, 20)) {
+      const meta = [c.domain, c.path, c.httpOnly ? 'httpOnly' : null, c.secure ? 'secure' : null]
+        .filter(Boolean)
+        .join(' | ');
+      lines.push(`  - ${c.name} | ${meta} | ${c.valueLength ?? 0} char`);
+    }
+    if (res.cookies.length > 20) lines.push(`  ... dan ${res.cookies.length - 20} cookie lain.`);
+  }
+
   if (res.accounts) {
     lines.push('Akun tersimpan di vault:');
     if (!res.accounts.length) lines.push('  (kosong — tambahkan lewat CLI di server)');
@@ -251,6 +504,28 @@ export function formatBrowserResult(cmd: BrowserCommand, res: BrowserAgentResult
       lines.push(`  - ${a.name}${a.url ? ` | ${a.url}` : ''}${a.username ? ` | ${a.username}` : ''}${a.email ? ` | email OTP: ${a.email}` : ''}`);
     }
     return lines.join('\n');
+  }
+
+  if (res.profiles) {
+    lines.push(`Profil browser (aktif: ${res.current || '-'}):`);
+    if (!res.profiles.length) lines.push('  (belum ada profil)');
+    for (const p of res.profiles) {
+      const akt = p.name === res.current ? ' ← aktif' : '';
+      lines.push(`  - ${p.name}${p.mtime ? ` | ${p.mtime}` : ''}${akt}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (res.action === 'profile_use' && res.profile) {
+    lines.push(`Profil browser aktif: ${res.profile}${res.note ? ` — ${res.note}` : ''}`);
+  }
+
+  if (res.chromeSignin) {
+    const c = res.chromeSignin;
+    lines.push(
+      `Chrome sign-in: akun ${c.account || '-'} | profil ${c.profile || '-'} | ` +
+        `${c.signedIn ? 'BERHASIL' : 'BELUM SELESAI'}${c.submitted ? ' | form terkirim' : ''}`
+    );
   }
 
   if (res.tabs) {

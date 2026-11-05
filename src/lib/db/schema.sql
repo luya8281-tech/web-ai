@@ -143,7 +143,39 @@ CREATE TABLE IF NOT EXISTS user_settings (
     system_prompt TEXT DEFAULT '',
     default_provider_id TEXT,
     default_model_id TEXT,
+    memory_enabled INTEGER NOT NULL DEFAULT 1,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Memori jangka panjang per pengguna. Dipakai lintas percakapan (bukan per chat).
+CREATE TABLE IF NOT EXISTS user_memories (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category TEXT NOT NULL DEFAULT 'lainnya',
+    content TEXT NOT NULL,
+    normalized TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'auto', -- 'auto', 'user', 'manual'
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, normalized)
+);
+
+-- Memori kerja lintas sesi: tugas/pekerjaan yang belum selesai per percakapan.
+-- Berbeda dari user_memories (fakta profil), tabel ini menyimpan state pekerjaan
+-- agar sesi AI baru bisa melanjutkan konteks dari sesi sebelumnya.
+CREATE TABLE IF NOT EXISTS work_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'aktif', -- aktif, tertunda, selesai, batal
+    summary TEXT NOT NULL DEFAULT '',
+    next_steps TEXT NOT NULL DEFAULT '',
+    last_request TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    UNIQUE(user_id, conversation_id)
 );
 
 -- Essential Performance Indexes
@@ -155,3 +187,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(conversation_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_models_provider_id ON models(provider_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_conversation_id ON attachments(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_user_memories_user ON user_memories(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_sessions_user ON work_sessions(user_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_sessions_conversation ON work_sessions(conversation_id);

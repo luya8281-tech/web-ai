@@ -33,6 +33,7 @@ import {
   Lock,
   Mail,
   Globe,
+  ListChecks,
 } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useChatStore } from '@/stores/chat-store';
@@ -129,6 +130,18 @@ interface MemoryItem {
   source: string;
   createdAt: string;
   updatedAt: string;
+}
+
+interface WorkSessionItem {
+  id: string;
+  conversationId: string;
+  title: string;
+  status: string;
+  summary: string;
+  nextSteps: string;
+  lastRequest: string;
+  updatedAt: string;
+  conversationTitle: string;
 }
 
 const MEMORY_CATEGORY_OPTIONS = [
@@ -316,6 +329,10 @@ export const SettingsDialog: React.FC = () => {
   const [memoryCategory, setMemoryCategory] = useState('lainnya');
   const [memoryContent, setMemoryContent] = useState('');
   const [memoryFilterCategory, setMemoryFilterCategory] = useState<string>('all');
+  const [workSessions, setWorkSessions] = useState<WorkSessionItem[]>([]);
+  const [workSessionsLoading, setWorkSessionsLoading] = useState(false);
+  const [workSessionsError, setWorkSessionsError] = useState<string | null>(null);
+  const [workSessionUpdating, setWorkSessionUpdating] = useState<string | null>(null);
 
   const fetchMemories = useCallback(async () => {
     setMemoriesLoading(true);
@@ -332,11 +349,52 @@ export const SettingsDialog: React.FC = () => {
     }
   }, []);
 
+  const fetchWorkSessions = useCallback(async () => {
+    setWorkSessionsLoading(true);
+    setWorkSessionsError(null);
+    try {
+      const res = await fetch('/api/work-sessions', { cache: 'no-store', credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Gagal memuat sesi kerja.');
+      setWorkSessions(Array.isArray(data.sessions) ? data.sessions : []);
+    } catch (e: any) {
+      setWorkSessionsError(e.message || 'Gagal memuat sesi kerja.');
+    } finally {
+      setWorkSessionsLoading(false);
+    }
+  }, []);
+
+  const handleWorkSessionStatus = useCallback(async (conversationId: string, status: 'selesai' | 'batal') => {
+    setWorkSessionUpdating(conversationId);
+    setWorkSessionsError(null);
+    try {
+      const res = await fetch('/api/work-sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId, status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Gagal memperbarui sesi kerja.');
+      addToast(
+        status === 'selesai' ? 'Tugas ditandai selesai' : 'Sesi kerja disembunyikan',
+        'success'
+      );
+      await fetchWorkSessions();
+    } catch (e: any) {
+      const message = e.message || 'Gagal memperbarui sesi kerja.';
+      setWorkSessionsError(message);
+      addToast(message, 'error');
+    } finally {
+      setWorkSessionUpdating(null);
+    }
+  }, [addToast, fetchWorkSessions]);
+
   useEffect(() => {
     if (settingsOpen && activeTab === 'memory') {
       fetchMemories();
+      fetchWorkSessions();
     }
-  }, [settingsOpen, activeTab, fetchMemories]);
+  }, [settingsOpen, activeTab, fetchMemories, fetchWorkSessions]);
 
   const handleAddMemory = async () => {
     const content = memoryContent.trim();
@@ -1163,6 +1221,114 @@ export const SettingsDialog: React.FC = () => {
                     className="w-4 h-4 mt-1 accent-primary rounded shrink-0"
                     title="Aktifkan/nonaktifkan memori"
                   />
+                </div>
+
+                <div className="p-4 rounded-xl border border-border bg-card">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-medium text-foreground min-w-0">
+                      <ListChecks className="w-4 h-4 text-primary shrink-0" />
+                      <span className="truncate">Sesi kerja lintas percakapan</span>
+                      {workSessions.length > 0 && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                          {workSessions.length} aktif
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={fetchWorkSessions}
+                      disabled={workSessionsLoading}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-background text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 shrink-0"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${workSessionsLoading ? 'animate-spin' : ''}`} />
+                      <span>Muat</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    Tugas yang belum selesai dari percakapan lain. Catatan ini otomatis dibaca
+                    oleh sesi/model AI baru agar pekerjaan bisa dilanjutkan tanpa mengulang dari nol.
+                  </p>
+                  {workSessionsError && (
+                    <div className="mt-2 flex items-start gap-1.5 text-[11px] text-destructive">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>{workSessionsError}</span>
+                    </div>
+                  )}
+                  {workSessionsLoading ? (
+                    <div className="flex items-center justify-center py-4 text-xs text-muted-foreground gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Memuat sesi kerja...</span>
+                    </div>
+                  ) : workSessions.length === 0 ? (
+                    <div className="mt-3 p-3 rounded-lg border border-dashed border-border text-center text-[11px] text-muted-foreground">
+                      Belum ada sesi kerja aktif. Sesi akan tercatat otomatis saat Anda memulai pekerjaan di chat.
+                    </div>
+                  ) : (
+                    <div className="mt-3 space-y-2 max-h-80 overflow-y-auto pr-1">
+                      {workSessions.map((session) => {
+                        const isUpdating = workSessionUpdating === session.conversationId;
+                        const updatedLabel = (() => {
+                          const date = new Date(session.updatedAt);
+                          return Number.isNaN(date.getTime())
+                            ? session.updatedAt
+                            : date.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+                        })();
+                        return (
+                          <div key={session.conversationId} className="p-3 rounded-lg border border-border bg-background/60">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
+                                    session.status === 'tertunda'
+                                      ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                                      : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                  }`}>
+                                    {session.status}
+                                  </span>
+                                  <span className="text-xs font-medium text-foreground break-words">
+                                    {session.title}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground mt-0.5">
+                                  Diperbarui {updatedLabel}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleWorkSessionStatus(session.conversationId, 'selesai')}
+                                  disabled={isUpdating}
+                                  title="Tandai selesai"
+                                  className="p-1.5 rounded-md border border-border bg-background text-muted-foreground hover:text-emerald-600 hover:border-emerald-500/40 disabled:opacity-50"
+                                >
+                                  {isUpdating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleWorkSessionStatus(session.conversationId, 'batal')}
+                                  disabled={isUpdating}
+                                  title="Sembunyikan sesi ini"
+                                  className="p-1.5 rounded-md border border-border bg-background text-muted-foreground hover:text-destructive hover:border-destructive/40 disabled:opacity-50"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                            {(session.summary || session.lastRequest) && (
+                              <p className="text-[11px] text-muted-foreground mt-2 line-clamp-2">
+                                {session.summary || session.lastRequest}
+                              </p>
+                            )}
+                            {session.nextSteps && (
+                              <p className="text-[11px] text-foreground/80 mt-1 line-clamp-2">
+                                <span className="font-medium">Berikutnya:</span> {session.nextSteps}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-xl border border-border bg-card">

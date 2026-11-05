@@ -19,6 +19,8 @@ export class SettingsRepository {
         systemPrompt: existing.system_prompt || '',
         defaultProviderId: existing.default_provider_id || undefined,
         defaultModelId: existing.default_model_id || undefined,
+        memoryEnabled: existing.memory_enabled === undefined ? true : Boolean(existing.memory_enabled),
+        claudePersona: existing.claude_persona || 'claude-official',
         updatedAt: existing.updated_at,
       };
     }
@@ -29,8 +31,8 @@ export class SettingsRepository {
     db.prepare(`
       INSERT INTO user_settings (
         id, user_id, theme, font_size, compact_mode, send_on_enter,
-        auto_title, show_timestamps, stream_responses, code_line_numbers, system_prompt, updated_at
-      ) VALUES (?, ?, 'dark', 'normal', 0, 1, 1, 1, 1, 1, '', ?)
+        auto_title, show_timestamps, stream_responses, code_line_numbers, system_prompt, claude_persona, updated_at
+      ) VALUES (?, ?, 'dark', 'normal', 0, 1, 1, 1, 1, 1, '', 'claude-official', ?)
     `).run(id, userId, now);
 
     return this.getUserSettings(userId);
@@ -53,6 +55,8 @@ export class SettingsRepository {
     if (data.systemPrompt !== undefined) { updates.push('system_prompt = ?'); params.push(data.systemPrompt); }
     if (data.defaultProviderId !== undefined) { updates.push('default_provider_id = ?'); params.push(data.defaultProviderId); }
     if (data.defaultModelId !== undefined) { updates.push('default_model_id = ?'); params.push(data.defaultModelId); }
+    if (data.memoryEnabled !== undefined) { updates.push('memory_enabled = ?'); params.push(data.memoryEnabled ? 1 : 0); }
+    if (data.claudePersona !== undefined) { updates.push('claude_persona = ?'); params.push(data.claudePersona); }
 
     params.push(userId);
     db.prepare(`UPDATE user_settings SET ${updates.join(', ')} WHERE user_id = ?`).run(...params);

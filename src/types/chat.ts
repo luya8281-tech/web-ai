@@ -9,14 +9,59 @@ export interface Attachment {
   dataUrl?: string; // base64 for vision/inline if needed
 }
 
+export interface UserLocation {
+  lat: number;
+  lon: number;
+  label?: string;
+  accuracy?: number;
+  updatedAt?: number;
+}
+
+export interface SearchSource {
+  index?: number;
+  title: string;
+  url: string;
+  sourceUrl?: string;
+  domain: string;
+  siteName?: string;
+  favicon?: string;
+  snippet?: string;
+}
+
+export type TaskStatus = 'aktif' | 'tertunda' | 'selesai' | 'batal';
+
+export interface TaskItem {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  summary?: string;
+  next?: string;
+  updatedAt: number;
+}
+
 export interface ActionInfo {
   id?: string;
   type: string;
   label: string;
   status: 'running' | 'done';
+  /** Argumen asli tool: perintah bash, query, URL, atau path berkas. */
+  subject?: string;
+  startedAt?: number;
+  durationMs?: number;
+  isError?: boolean;
+  review?: { verdict: 'allow' | 'warn' | 'block'; reason: string };
+  /** Potongan reasoning yang mendahului aksi ini (diisi klien agar kronologis). */
+  reasoningBefore?: string;
   details?: string;
   textBefore?: string;
   timestamp?: number;
+  sources?: SearchSource[];
+  command?: string;
+  output?: string;
+  url?: string;
+  screenshotUrl?: string;
+  videoUrl?: string;
+  embedUrl?: string;
 }
 
 export interface MessageMetadata {
@@ -28,6 +73,10 @@ export interface MessageMetadata {
   latencyMs?: number;
   finishReason?: string;
   actions?: ActionInfo[];
+  tasks?: TaskItem[];
+  sendFailed?: boolean;
+  errorMessage?: string;
+  feedback?: 'up' | 'down' | null;
   [key: string]: unknown;
 }
 
@@ -98,7 +147,7 @@ export interface Model {
   isEnabled?: boolean;
 }
 
-export type ProviderProtocol = 'openai-compatible' | 'anthropic-compatible' | 'mock' | 'antigravity-agent';
+export type ProviderProtocol = 'openai-compatible' | 'anthropic-compatible' | 'mock' | 'antigravity-agent' | 'codex-cli' | 'opencode-cli';
 
 export interface Provider {
   id: string;
@@ -128,11 +177,14 @@ export interface Project {
   updatedAt: string;
 }
 
+export type AppTheme = 'dark' | 'light' | 'midnight' | 'nord' | 'mocha' | 'rose' | 'sand' | 'system';
+
 export interface UserSettings {
   id: string;
   userId: string;
-  theme: 'dark' | 'light' | 'system';
+  theme: AppTheme;
   fontSize: 'small' | 'normal' | 'large';
+  fontFamily?: 'serif' | 'sans' | 'mono';
   compactMode: boolean;
   sendOnEnter: boolean;
   autoTitle: boolean;
@@ -142,13 +194,24 @@ export interface UserSettings {
   systemPrompt: string;
   defaultProviderId?: string;
   defaultModelId?: string;
+  memoryEnabled: boolean;
+  claudePersona?: string;
   updatedAt: string;
 }
 
+/** Panggilan tool native (OpenAI function calling) yang sudah lengkap terkumpul. */
+export interface NativeToolCall {
+  id?: string;
+  name: string;
+  /** JSON mentah seperti yang dikirim model; bisa tidak valid. */
+  arguments: string;
+}
+
 export interface ChatStreamChunk {
-  type: 'token' | 'reasoning' | 'usage' | 'error' | 'done';
+  type: 'token' | 'reasoning' | 'usage' | 'error' | 'tool_calls' | 'done';
   content?: string;
   reasoning?: string;
+  toolCalls?: NativeToolCall[];
   usage?: {
     promptTokens: number;
     completionTokens: number;
