@@ -7,8 +7,13 @@ import {
   listWebCredentials,
   saveWebCredential,
   deleteWebCredential,
+  listCookies,
+  saveCookie,
+  deleteCookie,
+  applyCookie,
   getVaultStats,
   getEmailAccount,
+  COOKIE_PLATFORMS,
 } from '@/lib/vault/vault-service';
 
 export const dynamic = 'force-dynamic';
@@ -28,12 +33,15 @@ export async function GET(req: NextRequest) {
 
     const emails = listEmailAccounts(!reveal);
     const credentials = listWebCredentials(!reveal);
+    const cookies = listCookies(!reveal);
     const stats = getVaultStats();
 
     return NextResponse.json({
       ok: true,
       emails,
       credentials,
+      cookies,
+      platforms: COOKIE_PLATFORMS,
       stats,
     });
   } catch (err: any) {
@@ -115,6 +123,37 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (type === 'cookie') {
+      const { platform, value, note, apply, action } = body;
+
+      if (action === 'apply' || (apply && !value)) {
+        if (!platform) return NextResponse.json({ error: 'Platform wajib diisi.' }, { status: 400 });
+        const applied = applyCookie(String(platform));
+        return NextResponse.json(
+          { ok: applied.ok, ...(applied.ok ? {} : { error: applied.error }), applied, stats: getVaultStats() },
+          { status: applied.ok ? 200 : 400 }
+        );
+      }
+
+      if (!platform || !value) {
+        return NextResponse.json(
+          { error: 'Platform dan string cookie wajib diisi.' },
+          { status: 400 }
+        );
+      }
+      const res = saveCookie(String(platform), String(value), note ? String(note) : '');
+      let applied = null;
+      if (apply) applied = applyCookie(res.platform);
+      return NextResponse.json({
+        ok: true,
+        message: `Cookie ${COOKIE_PLATFORMS[res.platform]?.label || res.platform} disimpan (${res.keyCount} key).` +
+          (applied?.ok ? ` Berkas diterapkan ke ${applied.file}${applied.sessionSynced ? ' + .env disinkronkan' : ''}.` : ''),
+        platform: res.platform,
+        applied,
+        stats: getVaultStats(),
+      });
+    }
+
     return NextResponse.json({ error: 'Tipe entri vault tidak dikenal.' }, { status: 400 });
   } catch (err: any) {
     if (err.message === 'UNAUTHORIZED') {
@@ -156,6 +195,15 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({
         ok,
         message: ok ? `Kredensial web "${id}" berhasil dihapus dari Vault.` : `Kredensial web "${id}" tidak ditemukan.`,
+        stats: getVaultStats(),
+      });
+    }
+
+    if (type === 'cookie') {
+      const ok = deleteCookie(id);
+      return NextResponse.json({
+        ok,
+        message: ok ? `Cookie "${id}" berhasil dihapus dari Vault.` : `Cookie "${id}" tidak ditemukan.`,
         stats: getVaultStats(),
       });
     }

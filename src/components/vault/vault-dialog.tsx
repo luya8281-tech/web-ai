@@ -24,6 +24,7 @@ import {
   HelpCircle,
   Fingerprint,
   Zap,
+  Cookie,
 } from 'lucide-react';
 import { useUIStore } from '@/stores/ui-store';
 import { useAuthStore } from '@/stores/auth-store';
@@ -54,9 +55,27 @@ interface WebItem {
   updatedAt?: string;
 }
 
+interface CookieItem {
+  platform: string;
+  value?: string;
+  masked?: string;
+  keyCount: number;
+  note?: string;
+  updatedAt: number;
+  appliedFile?: string;
+}
+
+interface PlatformMeta {
+  label: string;
+  domains: string[];
+  cookieFile: string;
+  syncEnv?: boolean;
+}
+
 interface VaultStats {
   totalEmails: number;
   totalCredentials: number;
+  totalCookies?: number;
   encryption: string;
   keyFile: string;
   vaultFile: string;
@@ -103,10 +122,14 @@ export const VaultDialog: React.FC = () => {
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
 
-  const [activeTab, setActiveTab] = useState<'emails' | 'web' | 'security'>('emails');
+  const [activeTab, setActiveTab] = useState<'emails' | 'web' | 'cookies' | 'security'>('emails');
   const [loading, setLoading] = useState(false);
   const [emails, setEmails] = useState<EmailItem[]>([]);
   const [credentials, setCredentials] = useState<WebItem[]>([]);
+  const [cookies, setCookies] = useState<CookieItem[]>([]);
+  const [platforms, setPlatforms] = useState<Record<string, PlatformMeta>>({});
+  const [showCookieForm, setShowCookieForm] = useState(false);
+  const [cookieForm, setCookieForm] = useState({ platform: 'instagram', value: '', note: '', apply: true });
   const [stats, setStats] = useState<VaultStats | null>(null);
   const [search, setSearch] = useState('');
 
@@ -171,6 +194,8 @@ export const VaultDialog: React.FC = () => {
       const data = await res.json();
       setEmails(data.emails || []);
       setCredentials(data.credentials || []);
+      setCookies(data.cookies || []);
+      setPlatforms(data.platforms || {});
       setStats(data.stats || null);
     } catch (err: any) {
       console.error('[Vault] Error fetching vault:', err);
@@ -279,6 +304,58 @@ export const VaultDialog: React.FC = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal menghapus');
       addToast(data.message || 'Akun email dihapus.', 'info');
+      fetchVault();
+    } catch (err: any) {
+      addToast(err.message, 'error');
+    }
+  };
+
+  const handleSaveCookie = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'cookie', ...cookieForm }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan cookie');
+      addToast(data.message || 'Cookie disimpan.', 'success');
+      setShowCookieForm(false);
+      setCookieForm({ platform: 'instagram', value: '', note: '', apply: true });
+      fetchVault();
+    } catch (err: any) {
+      addToast(err.message, 'error');
+    }
+  };
+
+  const handleApplyCookie = async (platform: string) => {
+    try {
+      const res = await fetch('/api/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'cookie', action: 'apply', platform }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.applied?.error || 'Gagal menerapkan cookie');
+      addToast(
+        `Cookie ${platforms[platform]?.label || platform} diterapkan ke ${data.applied?.file}` +
+          (data.applied?.sessionSynced ? ' (+ .env disinkronkan)' : ''),
+        'success'
+      );
+      fetchVault();
+    } catch (err: any) {
+      addToast(err.message, 'error');
+    }
+  };
+
+  const handleDeleteCookie = async (platform: string) => {
+    if (!confirm(`Hapus cookie "${platforms[platform]?.label || platform}" dari Vault?`)) return;
+    try {
+      const res = await fetch(`/api/vault?type=cookie&id=${encodeURIComponent(platform)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal menghapus');
+      addToast(data.message || 'Cookie dihapus.', 'info');
       fetchVault();
     } catch (err: any) {
       addToast(err.message, 'error');
@@ -480,6 +557,25 @@ export const VaultDialog: React.FC = () => {
               <span>Akun Login Web</span>
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-background/20 font-mono">
                 {credentials.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('cookies');
+                setShowCookieForm(false);
+              }}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                activeTab === 'cookies'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+              }`}
+            >
+              <Cookie className="w-3.5 h-3.5" />
+              <span>Cookies Sosmed</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-background/20 font-mono">
+                {cookies.length}
               </span>
             </button>
 
@@ -1161,6 +1257,129 @@ export const VaultDialog: React.FC = () => {
           )}
 
           {/* TAB 3: STATUS KEAMANAN */}
+          {activeTab === 'cookies' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Simpan string cookie mentah (<code className="font-mono">nama=nilai;nama2=nilai2</code>) untuk
+                  platform besar. Tersimpan terenkripsi AES-256 di server — nilai cookie tidak pernah dikirim balik
+                  ke browser setelah disimpan. Tombol <span className="font-medium">Terapkan</span> menulis berkas
+                  cookie untuk mesin unduh (yt-dlp/engine Instagram); khusus Instagram juga menyinkron sesi ke engine.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowCookieForm(v => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {showCookieForm ? 'Tutup' : 'Tambah Cookie'}
+                </button>
+              </div>
+
+              {showCookieForm && (
+                <form onSubmit={handleSaveCookie} className="space-y-3 p-4 rounded-xl border border-border bg-muted/20">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-muted-foreground mb-1">Platform</label>
+                      <select
+                        value={cookieForm.platform}
+                        onChange={e => setCookieForm(f => ({ ...f, platform: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                      >
+                        {Object.entries(platforms).map(([key, meta]) => (
+                          <option key={key} value={key}>{meta.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-muted-foreground mb-1">Catatan (opsional)</label>
+                      <input
+                        value={cookieForm.note}
+                        onChange={e => setCookieForm(f => ({ ...f, note: e.target.value }))}
+                        placeholder="mis. akun owlll4497"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-muted-foreground mb-1">String Cookie</label>
+                    <textarea
+                      value={cookieForm.value}
+                      onChange={e => setCookieForm(f => ({ ...f, value: e.target.value }))}
+                      rows={4}
+                      required
+                      placeholder="csrftoken=...;sessionid=...;ds_user_id=..."
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs font-mono resize-y"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={cookieForm.apply}
+                        onChange={e => setCookieForm(f => ({ ...f, apply: e.target.checked }))}
+                        className="rounded"
+                      />
+                      Langsung terapkan ke mesin unduh
+                    </label>
+                    <button type="submit" className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">
+                      Simpan ke Vault
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/80">
+                    Tips: di Chrome/DevTools → Application → Cookies → salin seluruh baris <code className="font-mono">document.cookie</code>
+                    dari tab Console saat berada di situs tersebut.
+                  </p>
+                </form>
+              )}
+
+              {cookies.length === 0 && !showCookieForm && (
+                <div className="text-center py-10 text-sm text-muted-foreground border border-dashed border-border rounded-xl">
+                  Belum ada cookie tersimpan. Klik <span className="font-medium">Tambah Cookie</span> untuk mulai.
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {cookies.map(c => (
+                  <div key={c.platform} className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{platforms[c.platform]?.label || c.platform}</span>
+                        {c.note && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{c.note}</span>}
+                        <span className="text-[10px] text-muted-foreground">{c.keyCount} key</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1 truncate" title={c.masked}>
+                        {c.masked || '(nilai tersimpan — gunakan Terapkan untuk memakai)'}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                        Diperbarui {new Date(c.updatedAt).toLocaleString('id-ID')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleApplyCookie(c.platform)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-border hover:bg-muted"
+                        title="Tulis ke berkas cookie mesin unduh"
+                      >
+                        <Zap className="w-3 h-3" />
+                        Terapkan
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCookie(c.platform)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                        title="Hapus"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'security' && (
             <div className="space-y-4 text-xs">
               <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 space-y-2">

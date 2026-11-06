@@ -45,7 +45,24 @@ export interface RawVaultBlob {
 export interface VaultInternalData {
   entries: Record<string, any>;
   emails?: Record<string, EmailAccount>;
+  cookies?: Record<string, SocialCookie>;
 }
+
+export interface SocialCookie {
+  platform: string;
+  value: string;
+  note?: string;
+  updatedAt: number;
+}
+
+export const COOKIE_PLATFORMS: Record<string, { label: string; domains: string[]; cookieFile: string; syncEnv?: boolean }> = {
+  instagram: { label: 'Instagram', domains: ['.instagram.com'], cookieFile: 'ig_cookies.txt', syncEnv: true },
+  tiktok:    { label: 'TikTok',   domains: ['.tiktok.com'],  cookieFile: 'tiktok_cookies.txt' },
+  youtube:   { label: 'YouTube',  domains: ['.youtube.com', '.google.com'], cookieFile: 'youtube_cookies.txt' },
+  twitter:   { label: 'X / Twitter', domains: ['.twitter.com', '.x.com'], cookieFile: 'twitter_cookies.txt' },
+  facebook:  { label: 'Facebook', domains: ['.facebook.com'], cookieFile: 'facebook_cookies.txt' },
+  threads:   { label: 'Threads',  domains: ['.threads.net', '.threads.com'], cookieFile: 'threads_cookies.txt' },
+};
 
 function loadKey(): Buffer {
   if (!fs.existsSync(KEY_FILE)) {
@@ -93,17 +110,18 @@ function decrypt(blob: RawVaultBlob): VaultInternalData {
 
 export function loadRawVault(): VaultInternalData {
   if (!fs.existsSync(VAULT_FILE)) {
-    return { entries: {}, emails: {} };
+    return { entries: {}, emails: {}, cookies: {} };
   }
   try {
     const raw = JSON.parse(fs.readFileSync(VAULT_FILE, 'utf8'));
     const obj = decrypt(raw);
     if (!obj.entries) obj.entries = {};
     if (!obj.emails) obj.emails = {};
+    if (!obj.cookies) obj.cookies = {};
     return obj;
   } catch (err: any) {
     console.error('[VaultService] Gagal mendekripsi berkas vault:', err);
-    return { entries: {}, emails: {} };
+    return { entries: {}, emails: {}, cookies: {} };
   }
 }
 
@@ -324,6 +342,126 @@ export function deleteWebCredential(name: string): boolean {
   return true;
 }
 
+// ----------------- COOKIES MEDIA SOSIAL -----------------
+
+export function listCookies(mask = true): Array<SocialCookie & { masked?: string; keyCount: number; appliedFile?: string }> {
+  const vault = loadRawVault();
+  return Object.entries(vault.cookies || {}).map(([platform, c]) => {
+    const pairs = parseCookiePairs(c.value);
+    const cfg = COOKIE_PLATFORMS[platform];
+    return {
+      ...c,
+      value: mask ? '' : c.value,
+      masked: mask ? pairs.map(p => p.name).join('; ') : undefined,
+      keyCount: pairs.length,
+      appliedFile: cfg ? path.join(YTDLP_COOKIE_DIR, cfg.cookieFile) : undefined,
+    };
+  }).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+export function getCookie(platform: string, reveal = false): SocialCookie | null {
+  const vault = loadRawVault();
+  const c = (vault.cookies || {})[platform.toLowerCase()];
+  if (!c) return null;
+  return reveal ? c : { ...c, value: '' };
+}
+
+function parseCookiePairs(raw: string): Array<{ name: string; value: string }> {
+  return String(raw || '')
+    .split(/;\s*/)
+    .map(seg => {
+      const idx = seg.indexOf('=');
+      if (idx <= 0) return null;
+      return { name: seg.slice(0, idx).trim(), value: seg.slice(idx + 1).trim() };
+    })
+    .filter((p): p is { name: string; value: string } => Boolean(p && p.name));
+}
+
+const YTDLP_COOKIE_DIR = '/root/.config/yt-dlp';
+
+export function saveCookie(platform: string, value: string, note?: string): { ok: boolean; platform: string; keyCount: number } {
+  const key = String(platform || '').toLowerCase().trim();
+  if (!COOKIE_PLATFORMS[key]) {
+    throw new Error(`Platform tidak dikenal: ${platform}. Pilihan: ${Object.keys(COOKIE_PLATFORMS).join(', ')}`);
+  }
+  const pairs = parseCookiePairs(value);
+  if (pairs.length === 0) {
+    throw new Error('String cookie kosong atau tidak valid (format: nama=nilai;nama2=nilai2).');
+  }
+  const vault = loadRawVault();
+  if (!vault.cookies) vault.cookies = {};
+  vault.cookies[key] = { platform: key, value: pairs.map(p => `${p.name}=${p.value}`).join(';'), note: note || '', updatedAt: Date.now() };
+  saveRawVault(vault);
+  return { ok: true, platform: key, keyCount: pairs.length };
+}
+
+export function deleteCookie(platform: string): boolean {
+  const key = String(platform || '').toLowerCase().trim();
+  const vault = loadRawVault();
+  if (!vault.cookies || !vault.cookies[key]) return false;
+  delete vault.cookies[key];
+  saveRawVault(vault);
+  return true;
+}
+
+/**
+ * Tulis cookie tersimpan ke berkas Netscape untuk yt-dlp/engine.
+ * Instagram juga menyinkron INSTAGRAM_SESSION_ID/USER_ID ke .env.local
+ * (engine memprioritaskan env di atas file cookie — tanpa sinkron, sesi
+ * basi di .env diam-diam menang).
+ */
+export function applyCookie(platform: string): { ok: boolean; file: string; sessionSynced: boolean; keyCount: number; error?: string } {
+  const key = String(platform || '').toLowerCase().trim();
+  const cfg = COOKIE_PLATFORMS[key];
+  if (!cfg) return { ok: false, file: '', sessionSynced: false, keyCount: 0, error: 'Platform tidak dikenal.' };
+
+  const cookie = getCookie(key, true);
+  if (!cookie) return { ok: false, file: '', sessionSynced: false, keyCount: 0, error: `Belum ada cookie tersimpan untuk ${cfg.label}.` };
+
+  const pairs = parseCookiePairs(cookie.value);
+  const expiry = String(Math.floor(Date.now() / 1000) + 3600 * 24 * 365);
+  const lines = ['# Netscape HTTP Cookie File', `# ${cfg.label} — diterapkan dari Vault ${new Date().toISOString()}`];
+  for (const domain of cfg.domains) {
+    for (const p of pairs) {
+      lines.push([domain, 'TRUE', '/', 'TRUE', expiry, p.name, p.value].join('\t'));
+    }
+  }
+  fs.mkdirSync(YTDLP_COOKIE_DIR, { recursive: true });
+  const file = path.join(YTDLP_COOKIE_DIR, cfg.cookieFile);
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, lines.join('\n') + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
+
+  let sessionSynced = false;
+  if (cfg.syncEnv) {
+    const sid = pairs.find(p => p.name === 'sessionid')?.value;
+    const uid = pairs.find(p => p.name === 'ds_user_id')?.value;
+    const envPath = '/root/ai-chat/.env.local';
+    try {
+      if (fs.existsSync(envPath) && sid) {
+        let text = fs.readFileSync(envPath, 'utf8');
+        let changed = false;
+        if (/^INSTAGRAM_SESSION_ID=/m.test(text)) {
+          const next = text.replace(/^INSTAGRAM_SESSION_ID=.*$/m, `INSTAGRAM_SESSION_ID="${sid}"`);
+          changed = changed || next !== text; text = next;
+        }
+        if (uid && /^INSTAGRAM_USER_ID=/m.test(text)) {
+          const next = text.replace(/^INSTAGRAM_USER_ID=.*$/m, `INSTAGRAM_USER_ID="${uid}"`);
+          changed = changed || next !== text; text = next;
+        }
+        if (changed) {
+          fs.writeFileSync(envPath, text);
+          sessionSynced = true;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[VaultService] Sinkron .env.local gagal:', err?.message || err);
+    }
+  }
+
+  return { ok: true, file, sessionSynced, keyCount: pairs.length };
+}
+
 // ----------------- TEST KONEKSI IMAP -----------------
 
 export async function testImapConnection(params: {
@@ -425,6 +563,7 @@ export function getVaultStats() {
   const vault = loadRawVault();
   const totalEmails = Object.keys(vault.emails || {}).length;
   const totalCredentials = Object.keys(vault.entries || {}).length;
+  const totalCookies = Object.keys(vault.cookies || {}).length;
 
   let otpActive = false;
   try {
@@ -437,6 +576,7 @@ export function getVaultStats() {
   return {
     totalEmails,
     totalCredentials,
+    totalCookies,
     encryption: 'AES-256-GCM',
     keyFile: KEY_FILE,
     vaultFile: VAULT_FILE,
