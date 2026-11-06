@@ -41,6 +41,7 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
+import zipfile
 
 COOKIE_FILE = "/root/.config/yt-dlp/ig_cookies.txt"
 DEFAULT_OUT = "/root/ai-chat/data/downloads"
@@ -102,6 +103,25 @@ def publish_file(src_path, dest_filename):
         except Exception:
             pass
     return os.path.join(SHARED_DIR, dest_filename)
+
+def bundle_carousel_zip(image_paths, shortcode):
+    """Kemas seluruh foto carousel menjadi SATU arsip ZIP.
+    Tujuan: mencegah banjir kartu berkas di ruang obrolan pengguna.
+    Mengembalikan path publik ZIP, atau None bila gagal / kurang dari 2 foto."""
+    try:
+        paths = [p for p in (image_paths or []) if p and os.path.exists(p)]
+        if len(paths) < 2:
+            return None
+        zip_name = f"ig_{shortcode}.zip"
+        zip_path = os.path.join(DEFAULT_OUT, zip_name)
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            for idx, p in enumerate(paths, 1):
+                ext = os.path.splitext(p)[1] or ".jpg"
+                zf.write(p, arcname=f"{shortcode}_{idx:02d}{ext}")
+        return publish_file(zip_path, zip_name)
+    except Exception as e:
+        sys.stderr.write(f"[*] Gagal membuat ZIP carousel: {e}\n")
+        return None
 
 def check_audio_volume(file_path):
     """Memeriksa apakah berkas audio benar-benar bersuara (bukan silent -91 dB)."""
@@ -398,7 +418,12 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
         if warp_proxy:
             cl.set_proxy(warp_proxy)
         cl.login_by_sessionid(session_id)
-        pk = cl.media_pk_from_url(url)
+        # Dekode lokal — media_pk_from_url memicu graphql publik yang diblokir
+        # dari IP datacenter (sumber LoginRequired palsu di jalur privat).
+        try:
+            pk = cl.media_pk_from_code(shortcode)
+        except Exception:
+            pk = cl.media_pk_from_url(url)
         raw_info = cl.private_request(f"media/{pk}/info/")
         items = raw_info.get("items", [])
         if not items:
@@ -513,14 +538,15 @@ def try_instagrapi(url, shortcode, merge_audio=True, audio_only=False):
                         except Exception:
                             pass
 
+            _bundle = bundle_carousel_zip(downloaded, shortcode)
             return {
                 "ok": True,
                 "type": "carousel",
-                "path": downloaded[0],
-                "paths": downloaded,
+                "path": _bundle or downloaded[0],
+                "paths": [_bundle] if _bundle else downloaded,
                 "shortcode": shortcode,
                 "has_audio": bool(music_url),
-                "size": sum(os.path.getsize(p) for p in downloaded if os.path.exists(p))
+                "size": os.path.getsize(_bundle) if _bundle else sum(os.path.getsize(p) for p in downloaded if os.path.exists(p))
             }
 
         # 3. Foto Tunggal
@@ -787,14 +813,15 @@ def parse_instagram_html(html, shortcode, merge_audio=True, audio_only=False, au
         except Exception as e:
             sys.stderr.write(f"[*] Gagal merge audio ({e})\n")
 
+    _bundle = bundle_carousel_zip(downloaded_images, shortcode)
     return {
         "ok": True,
         "type": "image" if len(downloaded_images) == 1 else "carousel",
-        "path": downloaded_images[0],
-        "paths": downloaded_images,
+        "path": _bundle or downloaded_images[0],
+        "paths": [_bundle] if _bundle else downloaded_images,
         "shortcode": shortcode,
         "has_audio": bool(validated_audio),
-        "size": sum(os.path.getsize(p) for p in downloaded_images if os.path.exists(p))
+        "size": os.path.getsize(_bundle) if _bundle else sum(os.path.getsize(p) for p in downloaded_images if os.path.exists(p))
     }
 
 def extract_via_decodo(url, shortcode, merge_audio=True, audio_only=False, audio_query=None):
@@ -1077,14 +1104,15 @@ async def extract_via_playwright(url, shortcode, merge_audio=True, custom_audio=
         except Exception as e:
             sys.stderr.write(f"[*] Playwright merge error: {e}\n")
 
+    _bundle = bundle_carousel_zip(downloaded_images, shortcode)
     return {
         "ok": True,
         "type": "image" if len(downloaded_images) == 1 else "carousel",
-        "path": downloaded_images[0],
-        "paths": downloaded_images,
+        "path": _bundle or downloaded_images[0],
+        "paths": [_bundle] if _bundle else downloaded_images,
         "shortcode": shortcode,
         "has_audio": bool(target_audio_file),
-        "size": sum(os.path.getsize(p) for p in downloaded_images if os.path.exists(p))
+        "size": os.path.getsize(_bundle) if _bundle else sum(os.path.getsize(p) for p in downloaded_images if os.path.exists(p))
     }
 
 def main():
