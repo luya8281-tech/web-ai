@@ -63,11 +63,13 @@ function scanLine(
  * Parse [TOOL: ...] tags by bracket depth instead of a lookahead regex, so params
  * containing code (d['a'][0], heredocs, arrays) are captured in full.
  * Unclosed tags run until the next tool tag or end of text.
+ * Also accepts the XML-style variant <TOOL: ...> that some models emit — closed
+ * by a '>' at end of line (so '>' inside redirects like 2>&1 is not mistaken).
  */
 export function parseToolTags(text: string, names: string = TOOL_NAMES): ParsedToolTag[] {
   if (!text) return [];
-  const headRe = new RegExp(`^\\[(${names}):`, 'i');
-  const nextTokenRe = /[`\[]/g;
+  const headRe = new RegExp(`^[\\[<](${names}):`, 'i');
+  const nextTokenRe = /[`\[<]/g;
   const tags: ParsedToolTag[] = [];
   let pos = 0;
 
@@ -101,7 +103,7 @@ export function parseToolTags(text: string, names: string = TOOL_NAMES): ParsedT
       continue;
     }
 
-    // 3. Check if '[' starts a valid [TOOL_NAME: tag
+    // 3. Check if '[' or '<' starts a valid [TOOL_NAME: tag
     const m = headRe.exec(text.substring(pos));
     if (!m) {
       pos++;
@@ -109,6 +111,7 @@ export function parseToolTags(text: string, names: string = TOOL_NAMES): ParsedT
     }
 
     const start = pos;
+    const isAngle = text[start] === '<';
     const bodyStart = start + m[0].length;
     let depth = 1;
     let end = -1;
@@ -124,6 +127,14 @@ export function parseToolTags(text: string, names: string = TOOL_NAMES): ParsedT
         end = scanPos + res.closeAt + 1;
         break;
       }
+      // Penutup gaya-XML: '>' di akhir baris, hanya bila tidak ada '[' menggantung.
+      if (isAngle && res.depth === 1) {
+        const gt = line.lastIndexOf('>');
+        if (gt !== -1 && line.slice(gt + 1).trim() === '') {
+          end = scanPos + gt + 1;
+          break;
+        }
+      }
       depth = res.depth;
       if (nl === -1) break;
       scanPos = nl + 1;
@@ -131,13 +142,14 @@ export function parseToolTags(text: string, names: string = TOOL_NAMES): ParsedT
 
     const closed = end !== -1;
     if (!closed) {
-      const nextOpenRe = new RegExp(`\\[(${names}):`, 'gi');
+      const nextOpenRe = new RegExp(`[[<](${names}):`, 'gi');
       nextOpenRe.lastIndex = bodyStart;
       const next = nextOpenRe.exec(text);
       end = next ? next.index : text.length;
     }
 
-    const rawParam = text.substring(bodyStart, closed ? end - 1 : end);
+    let rawParam = text.substring(bodyStart, closed ? end - 1 : end);
+    if (!closed && isAngle) rawParam = rawParam.replace(/\s*>\s*$/, '');
     tags.push({ type: m[1].toUpperCase(), param: rawParam.trim(), start, end, closed });
     pos = end;
   }
